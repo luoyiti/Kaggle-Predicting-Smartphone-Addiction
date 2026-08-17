@@ -31,7 +31,7 @@ SOURCE_ARCHIVE_B64: str | None = None
 KAGGLE_WORKING = Path("/kaggle/working")
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Kaggle runner for S6E8 training")
     parser.add_argument("--config", default=None, help="Experiment YAML path")
     parser.add_argument("--accelerator", choices=["cpu", "gpu"], default=None)
@@ -41,7 +41,10 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Kaggle working dirs are ephemeral; overwrite is safe and default",
     )
-    return parser.parse_args()
+    # Kaggle often wraps a script as a notebook and appends Jupyter args such as
+    # `-f /root/.local/share/jupyter/runtime/kernel-*.json`.
+    args, _unknown = parser.parse_known_args(argv)
+    return args
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -83,15 +86,23 @@ def looks_like_repo(root: Path) -> bool:
     ).is_file()
 
 
+def _script_dir() -> Path | None:
+    try:
+        return Path(__file__).resolve().parent
+    except NameError:
+        return None
+
+
 def find_existing_repo() -> Path | None:
     cwd = Path.cwd()
     if looks_like_repo(cwd):
         return cwd.resolve()
-    here = Path(__file__).resolve().parent
-    if looks_like_repo(here):
-        return here
-    if here.name == "kaggle" and looks_like_repo(here.parent):
-        return here.parent
+    here = _script_dir()
+    if here is not None:
+        if looks_like_repo(here):
+            return here
+        if here.name == "kaggle" and looks_like_repo(here.parent):
+            return here.parent
     if KAGGLE_WORKING.exists() and looks_like_repo(KAGGLE_WORKING):
         return KAGGLE_WORKING
     return None
@@ -212,3 +223,10 @@ if __name__ == "__main__":
         main()
     except subprocess.CalledProcessError as exc:
         raise SystemExit(exc.returncode) from exc
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+        raise

@@ -69,3 +69,23 @@ def test_kernel_metadata_template_is_safe(repo_root):
     text = (repo_root / "kaggle" / "kernel-metadata.json").read_text(encoding="utf-8")
     assert "YOUR_KAGGLE_USERNAME" in text
     assert "playground-series-s6e8" in text
+
+
+def test_runner_ignores_jupyter_kernel_args(repo_root):
+    import importlib.util
+
+    path = repo_root / "kaggle" / "runner.py"
+    spec = importlib.util.spec_from_file_location("kaggle_runner", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    args = module.parse_args(
+        [
+            "--config",
+            "configs/baseline.yaml",
+            "-f",
+            "/root/.local/share/jupyter/runtime/kernel-123.json",
+        ]
+    )
+    assert args.config == "configs/baseline.yaml"
+    assert args.accelerator is None
