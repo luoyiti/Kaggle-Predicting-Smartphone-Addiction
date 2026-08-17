@@ -620,7 +620,8 @@ def _eng_section(result: EDAResult) -> str:
 <p>当前 YAML <code>features.engineering</code>：{_esc(flag_txt)}。评估口径是<strong>单变量 AUC + 覆盖率 + 是否稀释最强组分</strong>，不是 CV 模型分数。没有 OOF 就不能声称某开关“提升了竞赛 AUC”。</p>
 {_df_table(result.engineering["table"], {"auc": "auc", "auc_raw": "auc", "coverage": "pct", "missing_rate": "pct", "p99": "float", "max": "float", "best_component_auc": "auc", "delta_vs_component": "float"})}
 <h3>新特征假设（全量单变量预筛）</h3>
-<p>下列特征只在本次 EDA 内存中构造，<strong>尚未写入</strong> <code>s6e8/features.py</code>。建议每次实验只加入其中一个，并用同一 CV 验证。</p>
+<p>下列特征只在本次 EDA 内存中构造，<strong>尚未写入</strong> <code>s6e8/features.py</code>。建议每次实验只加入其中一个，并用同一 CV 验证。
+<code>strong3_row_*</code> 的成员列来自同一份 train 的单变量 AUC 排名，组合 AUC 带有轻微选择乐观偏差，只能当作优先级，不能当作已验证的提分。</p>
 {_df_table(result.candidates, {"auc": "auc", "auc_raw": "auc", "coverage": "pct", "missing_rate": "pct", "delta_vs_best_raw": "float"})}
 """
 
