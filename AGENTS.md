@@ -59,3 +59,33 @@ python scripts/train.py --config configs/<experiment>.yaml
 - 不要在没有明确指令时大幅重构已有代码
 - 不要把 baseline LightGBM 强行改成 GPU
 - 不要引入 Kubernetes / Terraform / Airflow / MLflow Server 等与本竞赛无关的平台
+
+## Cursor Cloud specific instructions
+
+This is a pure-Python project (no Docker, no Node, no long-running services). The
+startup update script already runs `pip install -r requirements-dev.txt`, so deps
+are present when you start. Standard dev commands live in `README.md` (Tests
+section) and `.github/workflows/ci.yml`; run them with `python3 -m ...`.
+
+- **Console scripts are not on PATH.** `pip install --user` puts `pytest`,
+  `kaggle`, etc. in `~/.local/bin`, which is not on PATH. Invoke via the module
+  form instead: `python3 -m pytest -q` (not bare `pytest`).
+- **Lint/smoke + tests** (fast, no data needed):
+  `python3 -m compileall -q -x '(\.venv|venv)' .`,
+  `python3 scripts/train.py --help`, `python3 scripts/validate_configs.py`,
+  `python3 -m pytest -q`.
+- **Real competition data is absent by default.** `data/raw/` is gitignored and
+  empty on a fresh VM. Downloading it needs Kaggle secrets (`KAGGLE_API_TOKEN`,
+  plus `KAGGLE_USERNAME` for opaque tokens) — see README "Initial setup". Full
+  5-fold training on the real ~691k-row dataset is meant for **Kaggle Kernels**,
+  not this VM or GitHub Actions runners.
+- **Running the CLI without Kaggle creds:** generate synthetic S6E8-schema CSVs
+  into `data/raw/` (`id`, the 9 numeric + 3 categorical feature columns, and
+  `addicted_label` in train), then run
+  `python3 scripts/train.py --config configs/baseline.yaml`. On tiny synthetic
+  data LightGBM early-stops in seconds and writes `oof/<name>/`,
+  `submissions/<name>.csv`, and `experiments/<name>.json`. Never treat a
+  synthetic AUC as a real competition score.
+- **`experiments/<name>.json` is NOT gitignored.** A training run writes it; do
+  not commit records produced from synthetic/smoke data (`oof/`, `submissions/`,
+  `data/raw/*` are already gitignored).
