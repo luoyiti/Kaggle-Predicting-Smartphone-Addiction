@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -69,13 +70,28 @@ def iter_log_files(root: Path) -> list[Path]:
     )
 
 
+def decode_kaggle_log_text(text: str) -> str:
+    """Kaggle kernel logs are often a JSON array of {stream_name, time, data}."""
+    stripped = text.strip()
+    if not stripped.startswith("["):
+        return text
+    try:
+        events = json.loads(stripped)
+    except json.JSONDecodeError:
+        return text
+    if not isinstance(events, list):
+        return text
+    parts = [str(event.get("data", "")) for event in events if isinstance(event, dict)]
+    return "".join(parts) if parts else text
+
+
 def print_log_files(root: Path, *, max_chars: int = 50_000) -> None:
     hits = iter_log_files(root)
     if not hits:
         print("No files in downloaded kernel output.", flush=True)
         return
     for path in hits:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = decode_kaggle_log_text(path.read_text(encoding="utf-8", errors="replace"))
         if len(text) > max_chars:
             text = text[-max_chars:]
         print(f"----- {path} -----", flush=True)

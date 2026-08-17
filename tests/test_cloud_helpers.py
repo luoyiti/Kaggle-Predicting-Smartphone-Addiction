@@ -95,6 +95,23 @@ def test_wait_script_finds_log_files(tmp_path):
     assert [p.name for p in found] == ["kernel.log"]
 
 
+def test_decode_kaggle_json_log():
+    wait = load_script("wait_kaggle_kernel.py")
+    raw = json.dumps(
+        [
+            {"stream_name": "stdout", "time": 1.0, "data": "cwd=/kaggle/working\n"},
+            {
+                "stream_name": "stderr",
+                "time": 2.0,
+                "data": "FileNotFoundError: Train file not found\n",
+            },
+        ]
+    )
+    decoded = wait.decode_kaggle_log_text(raw)
+    assert "cwd=/kaggle/working" in decoded
+    assert "FileNotFoundError" in decoded
+
+
 def test_gha_summary_includes_kernel_log(tmp_path):
     summary_script = load_script("write_gha_summary.py")
     out = tmp_path / "output"

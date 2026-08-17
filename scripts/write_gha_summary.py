@@ -112,6 +112,20 @@ def build_markdown(args: argparse.Namespace, metrics: dict, submission: Path | N
     return "\n".join(lines)
 
 
+def _decode_kaggle_log_text(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("["):
+        return text
+    try:
+        events = json.loads(stripped)
+    except json.JSONDecodeError:
+        return text
+    if not isinstance(events, list):
+        return text
+    decoded = "".join(str(event.get("data", "")) for event in events if isinstance(event, dict))
+    return decoded or text
+
+
 def collect_log_excerpt(output_dir: Path, max_chars: int = 8000) -> str:
     if not output_dir.is_dir():
         return ""
@@ -126,7 +140,7 @@ def collect_log_excerpt(output_dir: Path, max_chars: int = 8000) -> str:
         raw = path.read_bytes()
         if b"\x00" in raw[:4096]:
             continue
-        text = raw.decode("utf-8", errors="replace")
+        text = _decode_kaggle_log_text(raw.decode("utf-8", errors="replace"))
         if len(text) > remaining:
             text = text[-remaining:]
         chunks.append(f"----- {path.name} -----\n{text}")

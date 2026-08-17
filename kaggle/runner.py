@@ -216,6 +216,8 @@ def debug_kaggle_fs() -> None:
             for child in sorted(inp.iterdir()):
                 names = sorted(p.name for p in child.iterdir()) if child.is_dir() else []
                 print(f"  {child}: {names[:30]}", flush=True)
+            trains = sorted(str(p) for p in inp.rglob("train.csv") if p.is_file())
+            print(f"train.csv hits={trains[:20]}", flush=True)
     except Exception as exc:
         print(f"debug_kaggle_fs failed: {exc!r}", flush=True)
 

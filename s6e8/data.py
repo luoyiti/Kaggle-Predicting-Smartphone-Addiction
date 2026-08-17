@@ -44,8 +44,8 @@ def load_train(config: dict[str, Any]) -> pd.DataFrame:
             "Local download:\n"
             "  kaggle competitions download -c playground-series-s6e8 -p data/raw\n"
             "  unzip -o data/raw/playground-series-s6e8.zip -d data/raw\n"
-            "On Kaggle Kernels the competition dataset should be mounted under "
-            "/kaggle/input/<competition-slug>/."
+            "On Kaggle Kernels the competition dataset is usually mounted under "
+            "/kaggle/input/<competition-slug>/ or /kaggle/input/competitions/<competition-slug>/."
         )
     return pd.read_csv(path)
 

@@ -111,15 +111,24 @@ def apply_runtime_override(config: dict[str, Any], accelerator: str | None = Non
 
 
 def discover_kaggle_input_root(input_root: Path, slug: str) -> Path:
-    """Find the mounted competition folder. Prefer the official slug, else train.csv."""
-    primary = input_root / slug
-    if primary.exists():
-        return primary
+    """Find the mounted competition folder. Prefer the official slug, else train.csv.
+
+    Current Kaggle Batch kernels mount competitions at
+    ``/kaggle/input/competitions/<slug>``, not ``/kaggle/input/<slug>``.
+    """
+    candidates = (
+        input_root / slug,
+        input_root / "competitions" / slug,
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
     if input_root.is_dir():
-        for child in sorted(p for p in input_root.iterdir() if p.is_dir()):
-            if (child / "train.csv").is_file():
-                return child
-    return primary
+        hits = [p.parent for p in input_root.rglob("train.csv") if p.is_file()]
+        hits.sort(key=lambda path: (0 if path.name == slug else 1, str(path)))
+        if hits:
+            return hits[0]
+    return candidates[0]
 
 
 def kaggle_input_root(config: dict[str, Any]) -> Path:

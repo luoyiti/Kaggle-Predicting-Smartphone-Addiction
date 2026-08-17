@@ -45,6 +45,17 @@ def test_kaggle_input_root_prefers_official_slug(tmp_path):
     assert found == slug_dir
 
 
+def test_kaggle_input_root_uses_competitions_subdir(tmp_path):
+    from s6e8.runtime import discover_kaggle_input_root
+
+    mounted = tmp_path / "competitions" / "playground-series-s6e8"
+    mounted.mkdir(parents=True)
+    (mounted / "train.csv").write_text("id,x\n1,1\n", encoding="utf-8")
+    (mounted / "test.csv").write_text("id,x\n2,2\n", encoding="utf-8")
+    found = discover_kaggle_input_root(tmp_path, "playground-series-s6e8")
+    assert found == mounted
+
+
 def test_invalid_accelerator():
     with pytest.raises(ValueError):
         normalize_accelerator("tpu")
