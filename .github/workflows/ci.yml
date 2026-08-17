@@ -29,11 +29,14 @@ jobs:
       - name: Train CLI help
         run: python scripts/train.py --help
 
+      - name: EDA CLI help
+        run: python scripts/eda.py --help
+
       - name: Validate experiment configs
         run: python scripts/validate_configs.py
 
       - name: Import smoke
-        run: python -c "import s6e8, s6e8.data, s6e8.features, s6e8.models.train, s6e8.runtime"
+        run: python -c "import s6e8, s6e8.data, s6e8.eda, s6e8.eda_report, s6e8.features, s6e8.models.train, s6e8.runtime"
 
       - name: Pytest
         run: python -m pytest -q
