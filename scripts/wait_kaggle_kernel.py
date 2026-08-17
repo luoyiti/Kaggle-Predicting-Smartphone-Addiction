@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
+import tempfile
 import time
+from pathlib import Path
 
 SUCCESS = {"complete"}
 FAILURE = {
@@ -58,6 +61,61 @@ def _status(kernel_id: str) -> str:
     return output
 
 
+def iter_log_files(root: Path) -> list[Path]:
+    files = [p for p in root.rglob("*") if p.is_file()]
+    return sorted(
+        p
+        for p in files
+        if p.suffix.lower() in {".log", ".txt"} or "log" in p.name.lower()
+    )
+
+
+def decode_kaggle_log_text(text: str) -> str:
+    """Kaggle kernel logs are often a JSON array of {stream_name, time, data}."""
+    stripped = text.strip()
+    if not stripped.startswith("["):
+        return text
+    try:
+        events = json.loads(stripped)
+    except json.JSONDecodeError:
+        return text
+    if not isinstance(events, list):
+        return text
+    parts = [str(event.get("data", "")) for event in events if isinstance(event, dict)]
+    return "".join(parts) if parts else text
+
+
+def print_log_files(root: Path, *, max_chars: int = 50_000) -> None:
+    hits = iter_log_files(root)
+    if not hits:
+        print("No files in downloaded kernel output.", flush=True)
+        return
+    for path in hits:
+        text = decode_kaggle_log_text(path.read_text(encoding="utf-8", errors="replace"))
+        if len(text) > max_chars:
+            text = text[-max_chars:]
+        print(f"----- {path} -----", flush=True)
+        print(text, flush=True)
+
+
+def dump_kernel_output(kernel_id: str) -> None:
+    dest = Path(tempfile.mkdtemp(prefix="kaggle-kernel-logs-"))
+    print(f"Downloading kernel output for failed run into {dest}", flush=True)
+    proc = subprocess.run(
+        ["kaggle", "kernels", "output", kernel_id, "-p", str(dest)],
+        capture_output=True,
+        text=True,
+    )
+    if proc.stdout.strip():
+        print(proc.stdout.strip(), flush=True)
+    if proc.stderr.strip():
+        print(proc.stderr.strip(), flush=True)
+    if proc.returncode != 0:
+        print(f"kaggle kernels output failed with code {proc.returncode}", flush=True)
+        return
+    print_log_files(dest)
+
+
 def normalize_status(raw: str) -> str:
     """Extract a comparable status token from `kaggle kernels status` output."""
     text = raw.strip()
@@ -105,6 +163,10 @@ def main() -> None:
         if status in FAILURE:
             print(f"Kernel failed with status={status}", flush=True)
             print(raw, flush=True)
+            try:
+                dump_kernel_output(args.kernel_id)
+            except Exception as exc:
+                print(f"Could not download kernel logs: {exc!r}", flush=True)
             raise SystemExit(1)
         if "403" in raw or "401" in raw:
             print(raw, flush=True)

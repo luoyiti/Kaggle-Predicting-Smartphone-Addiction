@@ -101,7 +101,53 @@ def build_markdown(args: argparse.Namespace, metrics: dict, submission: Path | N
             "The kernel may have failed before `save_artifacts`."
         )
         lines.append("")
+    log_excerpt = collect_log_excerpt(output_dir)
+    if log_excerpt:
+        lines.append("### Kernel log excerpt")
+        lines.append("")
+        lines.append("```text")
+        lines.append(log_excerpt.rstrip())
+        lines.append("```")
+        lines.append("")
     return "\n".join(lines)
+
+
+def _decode_kaggle_log_text(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("["):
+        return text
+    try:
+        events = json.loads(stripped)
+    except json.JSONDecodeError:
+        return text
+    if not isinstance(events, list):
+        return text
+    decoded = "".join(str(event.get("data", "")) for event in events if isinstance(event, dict))
+    return decoded or text
+
+
+def collect_log_excerpt(output_dir: Path, max_chars: int = 8000) -> str:
+    if not output_dir.is_dir():
+        return ""
+    hits = sorted(
+        p
+        for p in output_dir.rglob("*")
+        if p.is_file() and (p.suffix.lower() in {".log", ".txt"} or "log" in p.name.lower())
+    )
+    chunks: list[str] = []
+    remaining = max_chars
+    for path in hits:
+        raw = path.read_bytes()
+        if b"\x00" in raw[:4096]:
+            continue
+        text = _decode_kaggle_log_text(raw.decode("utf-8", errors="replace"))
+        if len(text) > remaining:
+            text = text[-remaining:]
+        chunks.append(f"----- {path.name} -----\n{text}")
+        remaining -= len(text)
+        if remaining <= 0:
+            break
+    return "\n\n".join(chunks)
 
 
 def main() -> None:

@@ -126,6 +126,17 @@ jobs:
           fi
           echo "Output tree:"
           find artifacts/kaggle-output -type f | sort
+          echo "::group::Kaggle kernel logs"
+          found_log=0
+          while IFS= read -r logf; do
+            found_log=1
+            echo "----- $logf -----"
+            cat "$logf"
+          done < <(find artifacts/kaggle-output -type f \( -name '*.log' -o -name '*.txt' \) | sort)
+          if [ "$found_log" = "0" ]; then
+            echo "No .log/.txt files in kernel output."
+          fi
+          echo "::endgroup::"
 
       - name: Write job summary
         if: always() && steps.prepare.outcome == 'success'
@@ -180,7 +191,13 @@ jobs:
           echo "::error::Kaggle kernel did not complete successfully."
           echo "kernel_id=$KERNEL_ID"
           echo "Open https://www.kaggle.com/code/$KERNEL_ID (login required if private)."
+          echo "This step only reports that Wait for kernel failed. The real error is in that step and in any *.log files downloaded above."
           if [ -n "$KERNEL_ID" ]; then
             kaggle kernels status "$KERNEL_ID" || true
+          fi
+          if [ -d artifacts/kaggle-output ]; then
+            echo "::group::Kernel log tail"
+            find artifacts/kaggle-output -type f \( -name '*.log' -o -name '*.txt' \) -exec tail -n 80 {} +
+            echo "::endgroup::"
           fi
           exit 1
