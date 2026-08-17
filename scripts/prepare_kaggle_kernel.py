@@ -83,6 +83,13 @@ def build_source_archive(root: Path) -> bytes:
     return buffer.getvalue()
 
 
+def format_b64_literal(blob: str, width: int = 76) -> str:
+    """Emit a concatenated string literal so Kaggle notebook wrapping does not get a megabyte line."""
+    chunks = [blob[i : i + width] for i in range(0, len(blob), width)] or [""]
+    inner = "\n    ".join(json.dumps(chunk) for chunk in chunks)
+    return f"(\n    {inner}\n)"
+
+
 def write_runner(staging: Path, context: dict, archive: bytes) -> None:
     template = (ROOT / "kaggle" / "runner.py").read_text(encoding="utf-8")
     marker = (
@@ -93,7 +100,7 @@ def write_runner(staging: Path, context: dict, archive: bytes) -> None:
         raise RuntimeError("kaggle/runner.py is missing RUN_CONTEXT markers")
     generated = (
         f"RUN_CONTEXT: dict[str, Any] | None = {json.dumps(context, indent=2)}\n"
-        f"SOURCE_ARCHIVE_B64: str | None = {json.dumps(base64.b64encode(archive).decode('ascii'))}\n"
+        f"SOURCE_ARCHIVE_B64: str | None = {format_b64_literal(base64.b64encode(archive).decode('ascii'))}\n"
     )
     (staging / "runner.py").write_text(template.replace(marker, generated, 1), encoding="utf-8")
 

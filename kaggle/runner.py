@@ -206,8 +206,23 @@ def run_train(root: Path, ctx: dict[str, Any], overwrite: bool) -> None:
     subprocess.run(cmd, cwd=root, env=env, check=True)
 
 
+def debug_kaggle_fs() -> None:
+    try:
+        print(f"cwd={Path.cwd()}", flush=True)
+        print(f"KAGGLE_KERNEL_RUN_TYPE={os.environ.get('KAGGLE_KERNEL_RUN_TYPE')}", flush=True)
+        inp = Path("/kaggle/input")
+        print(f"/kaggle/input exists={inp.exists()}", flush=True)
+        if inp.exists():
+            for child in sorted(inp.iterdir()):
+                names = sorted(p.name for p in child.iterdir()) if child.is_dir() else []
+                print(f"  {child}: {names[:30]}", flush=True)
+    except Exception as exc:
+        print(f"debug_kaggle_fs failed: {exc!r}", flush=True)
+
+
 def main() -> None:
     args = parse_args()
+    debug_kaggle_fs()
     ctx = resolve_context(args)
     print(f"kaggle_runner config={ctx['config']} accelerator={ctx['accelerator']}")
     if ctx.get("git_commit"):

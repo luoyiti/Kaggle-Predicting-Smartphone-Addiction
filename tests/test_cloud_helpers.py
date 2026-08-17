@@ -85,3 +85,31 @@ def test_kernel_status_parser():
     assert wait.normalize_status('x has status "KernelWorkerStatus.COMPLETE"') == "complete"
     assert wait.normalize_status('x has status "COMPLETED"') == "complete"
     assert wait.normalize_status("complete") == "complete"
+
+
+def test_wait_script_finds_log_files(tmp_path):
+    wait = load_script("wait_kaggle_kernel.py")
+    (tmp_path / "kernel.log").write_text("Traceback (most recent call last):\nboom\n", encoding="utf-8")
+    (tmp_path / "oof.npy").write_bytes(b"\x00\x01")
+    found = wait.iter_log_files(tmp_path)
+    assert [p.name for p in found] == ["kernel.log"]
+
+
+def test_gha_summary_includes_kernel_log(tmp_path):
+    summary_script = load_script("write_gha_summary.py")
+    out = tmp_path / "output"
+    out.mkdir()
+    (out / "kernel.log").write_text("FileNotFoundError: Train file not found\n", encoding="utf-8")
+    markdown = summary_script.build_markdown(
+        type("A", (), {
+            "config": "configs/baseline.yaml",
+            "accelerator": "cpu",
+            "kernel_id": "user/s6e8-cloud-train",
+            "status": "error",
+        })(),
+        {},
+        None,
+        out,
+    )
+    assert "Kernel log excerpt" in markdown
+    assert "FileNotFoundError" in markdown

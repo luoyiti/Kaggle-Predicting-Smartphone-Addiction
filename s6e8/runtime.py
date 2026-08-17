@@ -110,12 +110,24 @@ def apply_runtime_override(config: dict[str, Any], accelerator: str | None = Non
     return config
 
 
+def discover_kaggle_input_root(input_root: Path, slug: str) -> Path:
+    """Find the mounted competition folder. Prefer the official slug, else train.csv."""
+    primary = input_root / slug
+    if primary.exists():
+        return primary
+    if input_root.is_dir():
+        for child in sorted(p for p in input_root.iterdir() if p.is_dir()):
+            if (child / "train.csv").is_file():
+                return child
+    return primary
+
+
 def kaggle_input_root(config: dict[str, Any]) -> Path:
     explicit = (config.get("paths") or {}).get("kaggle_input")
     if explicit:
         return Path(explicit)
     slug = config["competition"]["slug"]
-    return Path("/kaggle/input") / slug
+    return discover_kaggle_input_root(Path("/kaggle/input"), slug)
 
 
 def resolve_input_path(path_like: str | Path, config: dict[str, Any]) -> Path:

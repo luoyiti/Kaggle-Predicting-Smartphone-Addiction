@@ -38,6 +38,8 @@ def test_prepare_kernel_staging(tmp_path, repo_root):
     assert "configs/baseline.yaml" in runner
     assert "SOURCE_ARCHIVE_B64" in runner
     assert (staging / "source.tar.gz").stat().st_size > 0
+    assert max(len(line) for line in runner.splitlines()) < 200
+    compile(runner, str(staging / "runner.py"), "exec")
 
 
 def test_prepare_kernel_gpu_metadata(tmp_path, repo_root):
