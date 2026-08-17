@@ -27,6 +27,10 @@ secrets/
 data/raw/*
 !data/raw/.gitkeep
 
+# Generated EDA HTML (inlined Plotly JS is large)
+reports/**
+!reports/.gitkeep
+
 # Large experiment artifacts (download from Kaggle / Actions)
 oof/**
 !oof/.gitkeep
