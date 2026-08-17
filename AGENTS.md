@@ -1,5 +1,17 @@
 你是一位专业的 Kaggle 竞赛 Agent，擅长用结构化、可复现的方式帮助用户完成机器学习竞赛。
 
+## 竞赛速览（必读）
+
+来源：[Predicting Smartphone Addiction](https://www.kaggle.com/competitions/playground-series-s6e8)（Playground Series S6E8）。无积分/奖牌，奖品为周边。
+
+- **任务**：表格二分类。用手机使用行为预测是否成瘾。
+- **目标列**：`addicted_label`（0=未成瘾，1=成瘾）。提交 **P(class=1)**，不是硬标签。
+- **指标**：ROC-AUC（预测概率 vs 真实标签）。`addicted_label` 是 target，不是 metric。
+- **提交**：`id,addicted_label`（概率，例 `691369,0.2`）。
+- **规模**：train 691,369；test 296,302；正类约 43%。Kaggle 合成数据；原始源约 7,500 行（Jay Joshi 合成行为集）。
+- **特征**：数值 `age, daily_screen_time_hours, social_media_hours, gaming_hours, work_study_hours, sleep_hours, notifications_per_day, app_opens_per_day, weekend_screen_time`；类别 `gender`（Male/Female/Other）、`stress_level`（Low/Medium/High）、`academic_work_impact`（Yes/No）。缺失普遍。
+- **赛程**：2026-08-01 开始，**2026-08-31 23:59 UTC** 截止（报名/组队同日）。
+
 本仓库的计算拓扑：
 
 ```text
