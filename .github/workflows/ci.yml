@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    name: lint-and-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Syntax check
+        run: python -m compileall -q -x '(\.venv|venv)' .
+
+      - name: Train CLI help
+        run: python scripts/train.py --help
+
+      - name: Validate experiment configs
+        run: python scripts/validate_configs.py
+
+      - name: Import smoke
+        run: python -c "import s6e8, s6e8.data, s6e8.features, s6e8.models.train, s6e8.runtime"
+
+      - name: Pytest
+        run: python -m pytest -q

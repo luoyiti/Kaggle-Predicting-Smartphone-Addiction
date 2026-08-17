@@ -20,6 +20,10 @@ def load_config(config_path: str | Path) -> dict[str, Any]:
     if not isinstance(config, dict):
         raise ValueError(f"Config must be a mapping: {path}")
     config["_config_path"] = str(path)
+    from s6e8.runtime import apply_runtime_override, validate_config
+
+    apply_runtime_override(config)
+    validate_config(config)
     return config
 
 
@@ -31,26 +35,37 @@ def resolve_path(path_like: str | Path) -> Path:
 
 
 def load_train(config: dict[str, Any]) -> pd.DataFrame:
-    path = resolve_path(config["paths"]["train"])
+    from s6e8.runtime import resolve_input_path
+
+    path = resolve_input_path(config["paths"]["train"], config)
     if not path.exists():
         raise FileNotFoundError(
             f"Train file not found: {path}\n"
-            "Download with:\n"
+            "Local download:\n"
             "  kaggle competitions download -c playground-series-s6e8 -p data/raw\n"
-            "  unzip -o data/raw/playground-series-s6e8.zip -d data/raw"
+            "  unzip -o data/raw/playground-series-s6e8.zip -d data/raw\n"
+            "On Kaggle Kernels the competition dataset should be mounted under "
+            "/kaggle/input/<competition-slug>/."
         )
     return pd.read_csv(path)
 
 
 def load_test(config: dict[str, Any]) -> pd.DataFrame:
-    path = resolve_path(config["paths"]["test"])
+    from s6e8.runtime import resolve_input_path
+
+    path = resolve_input_path(config["paths"]["test"], config)
     if not path.exists():
         raise FileNotFoundError(f"Test file not found: {path}")
     return pd.read_csv(path)
 
 
 def load_sample_submission(config: dict[str, Any]) -> pd.DataFrame | None:
-    path = resolve_path(config["paths"]["sample_submission"])
+    from s6e8.runtime import resolve_input_path
+
+    sample_path = config["paths"].get("sample_submission")
+    if not sample_path:
+        return None
+    path = resolve_input_path(sample_path, config)
     if not path.exists():
         return None
     return pd.read_csv(path)

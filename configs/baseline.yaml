@@ -5,6 +5,10 @@ experiment:
   feature_version: v1
   model_version: lgbm_v1
 
+runtime:
+  accelerator: cpu
+  enable_internet: true
+
 competition:
   slug: playground-series-s6e8
   # Official task is binary classification. addicted_label is the target (0/1),
