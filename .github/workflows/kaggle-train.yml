@@ -1,0 +1,185 @@
+name: Kaggle Train
+
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: "Experiment YAML path"
+        required: true
+        default: "configs/baseline.yaml"
+        type: string
+      accelerator:
+        description: "Runtime accelerator"
+        required: true
+        default: cpu
+        type: choice
+        options:
+          - cpu
+          - gpu
+      kernel_slug:
+        description: "Kaggle kernel slug (username/slug uses KAGGLE_USERNAME)"
+        required: false
+        default: s6e8-cloud-train
+        type: string
+      submit_to_kaggle:
+        description: "Submit the generated CSV to the competition leaderboard"
+        required: false
+        default: false
+        type: boolean
+      gpu_machine_shape:
+        description: "Kaggle GPU machine_shape (ignored for CPU)"
+        required: false
+        default: NvidiaTeslaT4
+        type: string
+
+concurrency:
+  group: kaggle-train-${{ github.event.inputs.kernel_slug }}
+  cancel-in-progress: false
+
+jobs:
+  train:
+    name: Orchestrate Kaggle Kernel
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: read
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      S6E8_GIT_COMMIT: ${{ github.sha }}
+      S6E8_GIT_REPO: https://github.com/${{ github.repository }}.git
+      INPUT_CONFIG: ${{ github.event.inputs.config }}
+      INPUT_ACCELERATOR: ${{ github.event.inputs.accelerator }}
+      INPUT_KERNEL_SLUG: ${{ github.event.inputs.kernel_slug }}
+      INPUT_SUBMIT: ${{ github.event.inputs.submit_to_kaggle }}
+      INPUT_GPU_SHAPE: ${{ github.event.inputs.gpu_machine_shape }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install orchestration dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "kaggle>=1.8" pyyaml pandas numpy pyarrow scikit-learn lightgbm
+
+      - name: Configure Kaggle credentials
+        id: auth
+        run: python scripts/setup_kaggle_auth.py
+
+      - name: Prepare Kaggle kernel
+        id: prepare
+        env:
+          KAGGLE_USERNAME: ${{ steps.auth.outputs.kaggle_username }}
+        run: |
+          python scripts/prepare_kaggle_kernel.py \
+            --config "$INPUT_CONFIG" \
+            --accelerator "$INPUT_ACCELERATOR" \
+            --username "${{ steps.auth.outputs.kaggle_username }}" \
+            --slug "$INPUT_KERNEL_SLUG" \
+            --git-commit "$S6E8_GIT_COMMIT" \
+            --git-repo "$S6E8_GIT_REPO" \
+            --gpu-machine-shape "$INPUT_GPU_SHAPE"
+          echo "staging=.kernel-staging" >> "$GITHUB_OUTPUT"
+
+      - name: Push kernel to Kaggle
+        id: push
+        working-directory: .kernel-staging
+        run: |
+          set -euo pipefail
+          KERNEL_ID="${{ steps.prepare.outputs.kernel_id }}"
+          echo "Pushing $KERNEL_ID (accelerator=$INPUT_ACCELERATOR)"
+          if [ "$INPUT_ACCELERATOR" = "gpu" ]; then
+            kaggle kernels push -p . --accelerator "$INPUT_GPU_SHAPE"
+          else
+            kaggle kernels push -p .
+          fi
+
+      - name: Wait for kernel
+        id: wait
+        run: |
+          python scripts/wait_kaggle_kernel.py \
+            "${{ steps.prepare.outputs.kernel_id }}" \
+            --interval 30 \
+            --timeout 14400
+
+      - name: Download kernel output
+        id: download
+        if: always() && steps.push.outcome == 'success'
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/kaggle-output
+          KERNEL_ID="${{ steps.prepare.outputs.kernel_id }}"
+          if kaggle kernels output "$KERNEL_ID" -p artifacts/kaggle-output; then
+            echo "Downloaded kernel output."
+          else
+            echo "::error::Failed to download Kaggle kernel output for $KERNEL_ID"
+            kaggle kernels status "$KERNEL_ID" || true
+            exit 1
+          fi
+          echo "Output tree:"
+          find artifacts/kaggle-output -type f | sort
+
+      - name: Write job summary
+        if: always() && steps.prepare.outcome == 'success'
+        run: |
+          STATUS="unknown"
+          if [ "${{ steps.wait.outcome }}" = "success" ]; then
+            STATUS="complete"
+          elif [ "${{ steps.wait.outcome }}" = "failure" ]; then
+            STATUS="error"
+          fi
+          python scripts/write_gha_summary.py \
+            --output-dir artifacts/kaggle-output \
+            --config "$INPUT_CONFIG" \
+            --accelerator "$INPUT_ACCELERATOR" \
+            --kernel-id "${{ steps.prepare.outputs.kernel_id }}" \
+            --status "$STATUS"
+
+      - name: Upload artifacts
+        if: always() && steps.download.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaggle-${{ steps.prepare.outputs.experiment || 'experiment' }}-${{ github.run_id }}
+          path: artifacts/kaggle-output
+          if-no-files-found: error
+
+      - name: Optional Kaggle competition submit
+        if: ${{ github.event.inputs.submit_to_kaggle == 'true' && steps.wait.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          SUBMISSION=$(python - <<'PY'
+          from pathlib import Path
+          root = Path("artifacts/kaggle-output")
+          hits = sorted(root.rglob("*.csv"))
+          preferred = [p for p in hits if "submission" in p.as_posix().lower() or p.parent.name == "submissions"]
+          path = (preferred or hits or [None])[0]
+          if path is None:
+              raise SystemExit("No submission CSV found in kernel output")
+          print(path)
+          PY
+          )
+          EXP="${{ steps.prepare.outputs.experiment }}"
+          echo "Submitting $SUBMISSION for experiment=$EXP"
+          kaggle competitions submit \
+            -c playground-series-s6e8 \
+            -f "$SUBMISSION" \
+            -m "experiment=${EXP} sha=${S6E8_GIT_COMMIT}"
+
+      - name: Fail if kernel did not complete
+        if: always()
+        run: |
+          KERNEL_ID="${{ steps.prepare.outputs.kernel_id }}"
+          if [ "${{ steps.wait.outcome }}" != "success" ]; then
+            echo "::error::Kaggle kernel did not complete successfully."
+            echo "kernel_id=$KERNEL_ID"
+            if [ -n "$KERNEL_ID" ]; then
+              kaggle kernels status "$KERNEL_ID" || true
+            fi
+            exit 1
+          fi

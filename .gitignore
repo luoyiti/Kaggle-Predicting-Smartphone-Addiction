@@ -4,7 +4,18 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.pytest_cache/
+
+# Secrets / local env (keep .env.example)
 .env
+.env.*
+!.env.example
+kaggle.json
+**/.kaggle/
+**/access_token
+credentials
+secrets/
+*.pem
 
 # OS / IDE
 .DS_Store
@@ -12,19 +23,26 @@ venv/
 .vscode/
 .ipynb_checkpoints/
 
-# Competition data (download locally)
-data/raw/*.csv
-data/raw/*.zip
-data/raw/*.parquet
+# Competition data (download locally or mount on Kaggle)
+data/raw/*
 !data/raw/.gitkeep
 
-# Experiment artifacts
-oof/**/*.npy
-oof/**/*.parquet
-oof/**/*.json
-oof/**/*.csv
+# Large experiment artifacts (download from Kaggle / Actions)
+oof/**
 !oof/.gitkeep
-submissions/*.csv
+submissions/**
 !submissions/.gitkeep
 models_ckpt/
 logs/
+*.lgb
+*.bin
+*.pkl
+*.joblib
+*.pt
+*.pth
+*.ckpt
+
+# Kaggle / CI working copies
+.kernel-staging/
+kaggle/output/
+artifacts/

@@ -1,4 +1,4 @@
-"""K-fold LightGBM training with mandatory OOF / test prediction dumps."""
+"""K-fold training with mandatory OOF / test prediction dumps."""
 
 from __future__ import annotations
 
@@ -16,6 +16,12 @@ from sklearn.model_selection import StratifiedKFold
 from s6e8 import __version__ as package_version
 from s6e8.data import PROJECT_ROOT, load_sample_submission, resolve_path
 from s6e8.features import feature_columns, transform
+from s6e8.runtime import (
+    apply_model_device,
+    experiment_summary,
+    get_accelerator,
+    get_git_commit,
+)
 
 
 def set_seed(seed: int) -> None:
@@ -42,7 +48,44 @@ def _float_dtype(config: dict[str, Any]) -> np.dtype:
     return np.dtype(name)
 
 
+def _relpath(path: Path) -> str:
+    try:
+        return str(path.relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def oof_exists(config: dict[str, Any]) -> bool:
+    oof_dir = resolve_path(config["paths"]["oof_dir"]) / config["experiment"]["name"]
+    return (oof_dir / "oof.npy").exists() or (oof_dir / "oof.parquet").exists()
+
+
+def assert_oof_available(config: dict[str, Any], overwrite: bool = False) -> None:
+    if overwrite or not oof_exists(config):
+        return
+    exp = config["experiment"]["name"]
+    raise FileExistsError(
+        f"OOF already exists for experiment {exp!r}. "
+        "Create a new config/experiment name, or pass --overwrite."
+    )
+
+
 def train_cv(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    y: pd.Series,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    backend = str(config["model"]["name"]).lower()
+    if backend in {"lightgbm", "lgbm", "lgb"}:
+        return _train_lightgbm_cv(train_df, test_df, y, config)
+    raise ValueError(
+        f"Unsupported model backend {backend!r}. "
+        "Add a trainer in s6e8/models/train.py; keep hyperparameters in YAML."
+    )
+
+
+def _train_lightgbm_cv(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     y: pd.Series,
@@ -74,10 +117,12 @@ def train_cv(
     best_iterations: list[int] = []
 
     model_cfg = config["model"]
-    params = dict(model_cfg["params"])
+    accelerator = get_accelerator(config)
+    params = apply_model_device(dict(model_cfg["params"]), model_cfg["name"], accelerator)
     params["seed"] = seed
     params["feature_fraction_seed"] = seed
     params["bagging_seed"] = seed
+    print(f"model={model_cfg['name']} accelerator={accelerator}")
 
     for fold, (tr_idx, va_idx) in enumerate(splitter.split(X, y_np), start=1):
         X_tr, X_va = X.iloc[tr_idx], X.iloc[va_idx]
@@ -161,8 +206,8 @@ def save_artifacts(
                 "pred": artifacts["oof"],
             }
         ).to_parquet(oof_pq, index=False)
-        written["oof_npy"] = str(oof_npy.relative_to(PROJECT_ROOT))
-        written["oof_parquet"] = str(oof_pq.relative_to(PROJECT_ROOT))
+        written["oof_npy"] = _relpath(oof_npy)
+        written["oof_parquet"] = _relpath(oof_pq)
 
     if output_cfg.get("save_test", True):
         test_npy = oof_dir / "test.npy"
@@ -174,15 +219,19 @@ def save_artifacts(
                 "pred": artifacts["test_pred"],
             }
         ).to_parquet(test_pq, index=False)
-        written["test_npy"] = str(test_npy.relative_to(PROJECT_ROOT))
-        written["test_parquet"] = str(test_pq.relative_to(PROJECT_ROOT))
+        written["test_npy"] = _relpath(test_npy)
+        written["test_parquet"] = _relpath(test_pq)
 
+    git_commit = artifacts.get("git_commit", get_git_commit())
+    runtime_seconds = artifacts.get("runtime_seconds")
+    summary = experiment_summary(
+        config,
+        cv_auc=artifacts["oof_auc"],
+        runtime_seconds=runtime_seconds,
+        git_commit=git_commit,
+    )
     metrics = {
-        "experiment": config["experiment"]["name"],
-        "seed": config["experiment"]["seed"],
-        "data_version": config["experiment"]["data_version"],
-        "feature_version": config["experiment"]["feature_version"],
-        "model_version": config["experiment"]["model_version"],
+        **summary,
         "package_version": package_version,
         "lightgbm_version": lgb.__version__,
         "metric": config["competition"]["metric"],
@@ -195,11 +244,23 @@ def save_artifacts(
         "feature_names": artifacts["feature_names"],
         "n_train": int(len(artifacts["oof"])),
         "n_test": int(len(artifacts["test_pred"])),
+        "n_splits": int(config["cv"]["n_splits"]),
+        "model_name": config["model"]["name"],
         "config_path": config.get("_config_path"),
     }
     metrics_path = oof_dir / "metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
-    written["metrics"] = str(metrics_path.relative_to(PROJECT_ROOT))
+    written["metrics"] = _relpath(metrics_path)
+
+    experiment_path = oof_dir / "experiment.json"
+    experiment_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    written["experiment"] = _relpath(experiment_path)
+
+    records_dir = resolve_path(config["paths"].get("experiments_dir", "experiments"))
+    records_dir.mkdir(parents=True, exist_ok=True)
+    record_path = records_dir / f"{config['experiment']['name']}.json"
+    record_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    written["experiment_record"] = _relpath(record_path)
 
     if output_cfg.get("save_submission", True):
         sub_path = _submission_path(config)
@@ -214,6 +275,6 @@ def save_artifacts(
                 {id_col: artifacts["test_ids"], pred_col: artifacts["test_pred"]}
             )
         sub.to_csv(sub_path, index=False)
-        written["submission"] = str(sub_path.relative_to(PROJECT_ROOT))
+        written["submission"] = _relpath(sub_path)
 
     return written
