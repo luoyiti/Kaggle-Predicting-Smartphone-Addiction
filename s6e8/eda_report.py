@@ -425,12 +425,13 @@ def _finding_card(f: Finding) -> str:
 
 
 def _exec_summary(result: EDAResult) -> str:
-    cards = "".join(_finding_card(f) for f in result.findings[:8])
+    cards = "".join(_finding_card(f) for f in result.findings)
     n_high = sum(1 for f in result.findings if f.severity == "high")
     n_med = sum(1 for f in result.findings if f.severity == "medium")
+    n_low = sum(1 for f in result.findings if f.severity == "low")
     return f"""
-<p>共生成 <strong>{len(result.findings)}</strong> 条数据驱动结论（high={n_high}，medium={n_med}）。
-下列条目按严重度与 |AUC−0.5| 排序，数字全部来自本次运行的全量统计，而不是预设文案。</p>
+<p>共生成 <strong>{len(result.findings)}</strong> 条数据驱动结论（high={n_high}，medium={n_med}，low={n_low}）。
+条目按严重度与效应量排序；数字全部来自本次运行的全量统计，不是预设文案。</p>
 {cards}
 """
 
