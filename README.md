@@ -135,6 +135,12 @@ First cloud run of the current baseline:
 3. `config=configs/baseline.yaml`
 4. `accelerator=cpu`
 
+Do **not** expect a Summary in the first few minutes. `Wait for kernel` is supposed to stay yellow while Kaggle trains. Full 5-fold LightGBM on this dataset often takes **30–180 minutes** on CPU. Expand that step to see heartbeats; the yellow job is not a hang by itself.
+
+If `Configure Kaggle credentials` fails: the new opaque token also needs secret `KAGGLE_USERNAME`. Token-only is not enough to build `username/s6e8-cloud-train`.
+
+Live kernel page (login required if private): `https://www.kaggle.com/code/<kaggle-username>/s6e8-cloud-train`
+
 ## Runtime YAML
 
 ```yaml

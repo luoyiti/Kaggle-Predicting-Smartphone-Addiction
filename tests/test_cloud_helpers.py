@@ -74,3 +74,14 @@ def test_gha_summary_from_metrics(tmp_path):
     assert "0.812345" in markdown
     assert "generated" in markdown
     assert Path("configs/baseline.yaml").as_posix() in markdown or "configs/baseline.yaml" in markdown
+
+
+def test_kernel_status_parser():
+    wait = load_script("wait_kaggle_kernel.py")
+    assert wait.normalize_status('luoyiti/s6e8-cloud-train has status "complete"') == "complete"
+    assert wait.normalize_status('luoyiti/s6e8-cloud-train has status "running"') == "running"
+    assert wait.normalize_status('luoyiti/s6e8-cloud-train has status "queued"') == "queued"
+    assert wait.normalize_status('luoyiti/s6e8-cloud-train has status "error"') == "error"
+    assert wait.normalize_status('x has status "KernelWorkerStatus.COMPLETE"') == "complete"
+    assert wait.normalize_status('x has status "COMPLETED"') == "complete"
+    assert wait.normalize_status("complete") == "complete"

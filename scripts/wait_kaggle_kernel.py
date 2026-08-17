@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 import time
@@ -17,6 +18,22 @@ FAILURE = {
     "canceled",
     "cancelacknowledged",
     "cancel_acknowledged",
+}
+STATUS_ALIASES = {
+    "complete": "complete",
+    "completed": "complete",
+    "success": "complete",
+    "succeeded": "complete",
+    "running": "running",
+    "queued": "queued",
+    "pending": "queued",
+    "error": "error",
+    "failed": "error",
+    "failure": "error",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+    "cancelacknowledged": "cancelled",
+    "cancel_acknowledged": "cancelled",
 }
 
 
@@ -41,23 +58,45 @@ def _status(kernel_id: str) -> str:
     return output
 
 
-def _normalize(raw: str) -> str:
-    line = raw.strip().splitlines()[-1] if raw.strip() else ""
-    token = line.split()[-1] if line.split() else line
-    return token.strip().strip('"').strip("'").lower()
+def normalize_status(raw: str) -> str:
+    """Extract a comparable status token from `kaggle kernels status` output."""
+    text = raw.strip()
+    if not text:
+        return "unknown"
+
+    quoted = re.search(r'has status\s+"([^"]+)"', text, flags=re.IGNORECASE)
+    if quoted:
+        token = quoted.group(1)
+    else:
+        line = text.splitlines()[-1]
+        token = line.split()[-1] if line.split() else line
+
+    token = token.strip().strip('"').strip("'").lower()
+    token = re.sub(r"^(kernelworkerstatus|kernel_session_status|kernel_worker_status)[._]?", "", token)
+    token = token.replace("-", "_").split(".")[-1]
+    return STATUS_ALIASES.get(token, token or "unknown")
 
 
 def main() -> None:
     args = parse_args()
+    print(
+        f"Waiting for Kaggle kernel {args.kernel_id}. "
+        "Full 5-fold LightGBM on this dataset often takes 30–180 minutes on CPU. "
+        "This step prints a heartbeat until the kernel finishes.",
+        flush=True,
+    )
+    print(f"Open https://www.kaggle.com/code/{args.kernel_id} (private kernels require login).", flush=True)
     started = time.time()
     last = ""
     while True:
         raw = _status(args.kernel_id)
-        status = _normalize(raw)
-        if status != last:
-            print(f"kernel={args.kernel_id} status={status}", flush=True)
-            if raw.strip() and raw.strip() != status:
-                print(raw.strip(), flush=True)
+        status = normalize_status(raw)
+        elapsed = int(time.time() - started)
+        print(f"[{elapsed:>5}s] kernel={args.kernel_id} status={status}", flush=True)
+        if status != last and raw.strip() and raw.strip() != status:
+            print(raw.strip(), flush=True)
+            last = status
+        elif status != last:
             last = status
 
         if status in SUCCESS:

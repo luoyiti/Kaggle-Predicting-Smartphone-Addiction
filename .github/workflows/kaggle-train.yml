@@ -94,6 +94,8 @@ jobs:
           set -euo pipefail
           KERNEL_ID="${{ steps.prepare.outputs.kernel_id }}"
           echo "Pushing $KERNEL_ID (accelerator=$INPUT_ACCELERATOR)"
+          echo "Kernel page: https://www.kaggle.com/code/$KERNEL_ID"
+          echo "Wait can take 30-180 minutes for full 5-fold CPU training. Expand the next step for heartbeats."
           if [ "$INPUT_ACCELERATOR" = "gpu" ]; then
             kaggle kernels push -p . --accelerator "$INPUT_GPU_SHAPE"
           else
@@ -172,14 +174,13 @@ jobs:
             -m "experiment=${EXP} sha=${S6E8_GIT_COMMIT}"
 
       - name: Fail if kernel did not complete
-        if: always()
+        if: always() && steps.push.outcome == 'success' && steps.wait.outcome != 'success'
         run: |
           KERNEL_ID="${{ steps.prepare.outputs.kernel_id }}"
-          if [ "${{ steps.wait.outcome }}" != "success" ]; then
-            echo "::error::Kaggle kernel did not complete successfully."
-            echo "kernel_id=$KERNEL_ID"
-            if [ -n "$KERNEL_ID" ]; then
-              kaggle kernels status "$KERNEL_ID" || true
-            fi
-            exit 1
+          echo "::error::Kaggle kernel did not complete successfully."
+          echo "kernel_id=$KERNEL_ID"
+          echo "Open https://www.kaggle.com/code/$KERNEL_ID (login required if private)."
+          if [ -n "$KERNEL_ID" ]; then
+            kaggle kernels status "$KERNEL_ID" || true
           fi
+          exit 1
