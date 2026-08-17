@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+.ipynb_checkpoints/
+
+# Competition data (download locally)
+data/raw/*.csv
+data/raw/*.zip
+data/raw/*.parquet
+!data/raw/.gitkeep
+
+# Experiment artifacts
+oof/**/*.npy
+oof/**/*.parquet
+oof/**/*.json
+oof/**/*.csv
+!oof/.gitkeep
+submissions/*.csv
+!submissions/.gitkeep
+models_ckpt/
+logs/
