@@ -1,0 +1,19 @@
+{
+  "experiment": "histgb_nocat",
+  "git_commit": "d7cdd9034d0edf205404ad6dad1c3e4d6cc25479",
+  "config": "/kaggle/working/src/configs/histgb_nocat.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "nocat_v1",
+  "model_version": "histgb_v1",
+  "accelerator": "cpu",
+  "cv_auc": 0.9621397202974065,
+  "runtime_seconds": 178.01,
+  "timestamp": "2026-08-18T07:13:02Z",
+  "environment": "kaggle",
+  "hypothesis": "Same numeric-only feature set as lgbm_nocat. Pair with lgbm_nocat for a two-family mean/grid blend; diagnostic lgbm_raw+histgb_raw already gained ~0.0007 OOF vs LightGBM alone.\n",
+  "change": "histgb_raw plus features.drop of the three categoricals.",
+  "cv_std": 0.0004582753141999618,
+  "diagnostic": false,
+  "backend": "histgb"
+}

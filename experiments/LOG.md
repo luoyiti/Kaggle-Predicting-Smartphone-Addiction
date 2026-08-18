@@ -4,6 +4,24 @@ Diagnostic rows use a **stratified 80,000-row train subsample**, 3 folds, seed 4
 They rank hypotheses. They are **not** competition scores. A result counts only when
 `diagnostic` is false, `n_splits=5`, full train, and `oof/<name>/metrics.json` exists.
 
+## Full 5-fold (Kaggle Kernels, 691,369 train, seed 42)
+
+Source: `oof/<name>/metrics.json` from kernels
+[yitiluo/s6e8-lgbm-nocat](https://www.kaggle.com/code/yitiluo/s6e8-lgbm-nocat) and
+[yitiluo/s6e8-histgb-nocat](https://www.kaggle.com/code/yitiluo/s6e8-histgb-nocat).
+Feature set is the 9 numerics including `notifications_per_day` and `app_opens_per_day`.
+The three categoricals are dropped. No coverage features.
+
+| experiment | hypothesis | change | CV AUC | fold std | runtime | conclusion | next step |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| lgbm_nocat | Drop only the three categoricals | LightGBM, 9 numeric cols, 5-fold | **0.963771** | 0.000593 | 715s | Primary single model. Folds 0.96293–0.96468. Best iter 1549–1912. | Default submit candidate |
+| histgb_nocat | Same cols, second tree family | sklearn HistGB, max_iter=500 | 0.962140 | 0.000458 | 178s | −0.00163 vs LGBM. Kaggle sklearn 1.6.1 has no `X_val`; hit the 500-iter cap on every fold. | Optional: more trees / sklearn≥1.7 later |
+| blend_nocat | Complementary tree errors | Grid 0.85 LGBM + 0.15 HistGB | **0.963806** | — | — | +0.000035 vs LGBM. Pearson 0.992. Tiny, consistent lift. | Prefer this CSV if submitting a blend |
+
+Did **not** submit to the leaderboard. Did **not** add coverage features. Did **not** drop notifications/app_opens.
+
+## Diagnostic ranking (80k rows, 3-fold, seed 42 — not a leaderboard number)
+
 | experiment | hypothesis | change | CV AUC | fold std | runtime | conclusion | next step |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | baseline_diag80000 | Current ratios + n_missing are a fine GBM start | LightGBM, 17 cols | 0.953145 | 0.000256 | 18s | Control. Engineering is not free. | Compare raw |
@@ -35,19 +53,21 @@ They rank hypotheses. They are **not** competition scores. A result counts only 
 
 **Is CV trustworthy?**
 
-- Fold std ≈ 0.0003 on 80k×3. Rankings are stable. Absolute 80k AUC is **not** the leaderboard number; full 691k×5 still has to be run on Kaggle Kernels.
+- Fold std ≈ 0.0003 on 80k×3 and 0.0006 on full 5-fold. Rankings held: `lgbm_nocat` still beats HistGB; blend still helps, but the full-data lift is much smaller.
 
 **Complementary errors?**
 
-- LGBM vs HistGB Pearson ≈ 0.99. Grid blend still adds ~0.0006. Logreg is more complementary and too inaccurate. Do not average in failed ablations (`usage_core`).
+- On 80k diagnostics, LGBM vs HistGB Pearson ≈ 0.99 and grid blend added ~0.0006.
+- On full 5-fold OOF the same pair is Pearson 0.992. Grid 0.85/0.15 adds only **+0.000035**. HistGB is a weaker partner here because it capped at 500 trees on sklearn 1.6.1 without `X_val`.
+- Do not average in failed ablations (`usage_core`).
 
-## Recommended next Kaggle Train jobs (full 5-fold)
+## Full 5-fold jobs (done)
 
-1. `configs/lgbm_nocat.yaml` (CPU) — primary single model.
-2. `configs/histgb_nocat.yaml` (CPU) — blend partner.
-3. After both OOF files exist: `python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid`.
+1. `configs/lgbm_nocat.yaml` (CPU) — OOF **0.963771**.
+2. `configs/histgb_nocat.yaml` (CPU) — OOF 0.962140.
+3. `python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid --name blend_nocat` — OOF **0.963806**.
 
-Do not submit to the leaderboard unless the workflow input `submit_to_kaggle=true`.
+Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submissions/blend_nocat.csv`). Do not `kaggle competitions submit` unless explicitly asked.
 
 ## Not worth more budget
 
@@ -55,4 +75,4 @@ Do not submit to the leaderboard unless the workflow input `submit_to_kaggle=tru
 - `strong3_row_mean` / `strong3_row_max` / `or_usage_score` for GBMs.
 - Dropping notifications or app_opens.
 - Mixing original 7,500 rows into train (component dependence differs: original `daily` ⟂ social+gaming+work; playground never violates `daily ≥ sum`).
-- Wide hyperparameter search before the two full 5-fold runs above.
+- Stacking extra coverage features on top of `lgbm_nocat`.
