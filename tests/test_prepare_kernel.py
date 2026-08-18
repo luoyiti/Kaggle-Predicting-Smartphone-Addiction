@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 
@@ -65,6 +66,36 @@ def test_prepare_kernel_gpu_metadata(tmp_path, repo_root):
     meta = json.loads((staging / "kernel-metadata.json").read_text(encoding="utf-8"))
     assert meta["enable_gpu"] is True
     assert meta["machine_shape"] == "NvidiaTeslaT4"
+
+
+def test_custom_kernel_slug_gets_a_matching_default_title(tmp_path, repo_root):
+    """Catch Kaggle 409s caused by a title that resolves to a different id."""
+    staging = tmp_path / "kernel-custom-slug"
+    slug = "s6e8-histgb-nocat-long-v1"
+    subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "prepare_kaggle_kernel.py"),
+            "--config",
+            "configs/histgb_nocat_long_v1.yaml",
+            "--accelerator",
+            "cpu",
+            "--username",
+            "testuser",
+            "--slug",
+            slug,
+            "--out",
+            str(staging),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    meta = json.loads((staging / "kernel-metadata.json").read_text(encoding="utf-8"))
+    title_slug = re.sub(r"[^a-z0-9]+", "-", meta["title"].lower()).strip("-")
+    assert meta["id"] == f"testuser/{slug}"
+    assert title_slug == slug
 
 
 def test_kernel_metadata_template_is_safe(repo_root):
