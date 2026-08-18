@@ -25,7 +25,6 @@ from s6e8.data import load_config
 from s6e8.runtime import apply_runtime_override, get_git_commit, normalize_accelerator
 
 DEFAULT_SLUG = "s6e8-cloud-train"
-DEFAULT_TITLE = "S6E8 Cloud Train"
 GPU_MACHINE_SHAPE = "NvidiaTeslaT4"
 BUNDLE_PATHS = (
     "s6e8",
