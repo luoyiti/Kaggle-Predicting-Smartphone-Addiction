@@ -98,6 +98,33 @@ def test_custom_kernel_slug_gets_a_matching_default_title(tmp_path, repo_root):
     assert title_slug == slug
 
 
+def test_explicit_kernel_title_is_preserved(tmp_path, repo_root):
+    staging = tmp_path / "kernel-explicit-title"
+    title = "Explicit Human Title"
+    subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "prepare_kaggle_kernel.py"),
+            "--config",
+            "configs/baseline.yaml",
+            "--accelerator",
+            "cpu",
+            "--username",
+            "testuser",
+            "--title",
+            title,
+            "--out",
+            str(staging),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    meta = json.loads((staging / "kernel-metadata.json").read_text(encoding="utf-8"))
+    assert meta["title"] == title
+
+
 def test_kernel_metadata_template_is_safe(repo_root):
     text = (repo_root / "kaggle" / "kernel-metadata.json").read_text(encoding="utf-8")
     assert "YOUR_KAGGLE_USERNAME" in text
