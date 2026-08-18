@@ -27,10 +27,15 @@ secrets/
 data/raw/*
 !data/raw/.gitkeep
 
-# Other generated reports stay local; keep the EDA HTML in git for review.
+# Other generated reports stay local; keep the EDA HTML and overview index in git.
 reports/**
 !reports/.gitkeep
 !reports/eda_report.html
+!reports/index.html
+!reports/vercel.json
+
+# Vercel CLI link metadata (created during deploy)
+.vercel/
 
 # Large experiment artifacts (download from Kaggle / Actions)
 oof/**

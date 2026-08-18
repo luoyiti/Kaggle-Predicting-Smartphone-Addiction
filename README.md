@@ -40,7 +40,8 @@ data/raw/           train.csv / test.csv / sample_submission.csv (gitignored)
 oof/                per-experiment OOF + test predictions (gitignored)
 submissions/        Kaggle submission CSVs (gitignored)
 experiments/        small experiment metadata JSON (ok to commit)
-scripts/            CLI entrypoints
+reports/            self-contained HTML reports and `index.html` overview
+scripts/            CLI entrypoints (`train.py`, `eda.py`, `build_reports_index.py`)
 s6e8/               package: data, features, models, runtime
 kaggle/             Kernel runner + metadata template
 .github/workflows/  CI + Kaggle Train orchestration
@@ -158,9 +159,15 @@ These do **not** claim a competition AUC. The smoke test uses a tiny synthetic d
 ```bash
 python -m compileall -q .
 python scripts/train.py --help
+python scripts/eda.py --help
+python scripts/build_reports_index.py --help
 python scripts/validate_configs.py
 pytest -q
 ```
+
+## Reports
+
+HTML reports live in `reports/`. `python scripts/build_reports_index.py` scans that directory and writes `reports/index.html`. Use `--check` to fail if the committed overview is stale.
 
 ## Optional GPU dependencies
 
