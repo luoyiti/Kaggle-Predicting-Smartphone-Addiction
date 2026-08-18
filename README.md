@@ -124,10 +124,15 @@ python scripts/train.py --config configs/lgbm_nocat.yaml --max-train-rows 80000 
 
 That renames the experiment to `lgbm_nocat_diag80000` and skips writing `experiments/*.json`. Record the ranking in `experiments/LOG.md`. Full 5-fold jobs belong on Kaggle Kernels.
 
-Current best single-model YAML (from 80k diagnostics, not a full-data score): `configs/lgbm_nocat.yaml`. Blend partner: `configs/histgb_nocat.yaml`.
+Current full-data 5-fold best single model is `configs/lgbm_nocat.yaml` (OOF AUC 0.963771).
+The current best OOF blend combines it with `configs/histgb_nocat_long_v1.yaml` at
+0.60/0.40 (OOF AUC 0.964087). See `experiments/LOG.md` for the attributable comparison.
 
 ```bash
-python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid
+python scripts/blend_oof.py \
+  --experiments lgbm_nocat histgb_nocat_long_v1 \
+  --method grid \
+  --name blend_nocat_long_v1
 ```
 
 ## Cloud workflow (daily loop)
@@ -197,4 +202,4 @@ Numeric (many contain NaNs): `age`, `daily_screen_time_hours`, `social_media_hou
 
 Categorical: `gender` (Male / Female / Other), `stress_level` (Low / Medium / High), `academic_work_impact` (Yes / No).
 
-Missingness is widespread (including categoricals). Positive class is roughly 43%. Trees handle NaNs natively; baseline also adds `n_missing` and a few usage ratios.
+Missingness is widespread (including categoricals). Positive class is roughly 71%. Trees handle NaNs natively; baseline also adds `n_missing` and a few usage ratios.
