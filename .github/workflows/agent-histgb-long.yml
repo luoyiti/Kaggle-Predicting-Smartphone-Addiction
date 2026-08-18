@@ -6,6 +6,7 @@ on:
       - agent/histgb-nocat-long-v1
     paths:
       - .github/workflows/agent-histgb-long.yml
+      - scripts/prepare_kaggle_kernel.py
 
 jobs:
   train:
