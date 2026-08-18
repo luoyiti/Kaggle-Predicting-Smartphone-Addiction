@@ -1,0 +1,21 @@
+{
+  "experiment": "blend_nocat_long_v1",
+  "cv_auc": 0.9640872437684151,
+  "method": "grid",
+  "components": [
+    "lgbm_nocat",
+    "histgb_nocat_long_v1"
+  ],
+  "weights": {
+    "lgbm_nocat": 0.6,
+    "histgb_nocat_long_v1": 0.4
+  },
+  "component_auc": {
+    "lgbm_nocat": 0.9637713704727537,
+    "histgb_nocat_long_v1": 0.9634682524075684
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "Grid blend of lgbm_nocat and the longer-trained histgb_nocat_long_v1."
+}
