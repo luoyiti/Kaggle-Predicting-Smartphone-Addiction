@@ -4,6 +4,9 @@ Diagnostic rows use a **stratified 80,000-row train subsample**, 3 folds, seed 4
 They rank hypotheses. They are **not** competition scores. A result counts only when
 `diagnostic` is false, `n_splits=5`, full train, and `oof/<name>/metrics.json` exists.
 
+Full-data screens with `--n-splits 3` (no row subsample) are marked `*_diag`. They
+are stronger than 80k ranking runs but still **not** official 5-fold scores.
+
 ## Full 5-fold (Kaggle Kernels, 691,369 train, seed 42)
 
 Source: `oof/<name>/metrics.json` from kernels
@@ -19,6 +22,15 @@ The three categoricals are dropped. No coverage features.
 | blend_nocat | Complementary tree errors | Grid 0.85 LGBM + 0.15 HistGB | **0.963806** | — | — | +0.000035 vs LGBM. Pearson 0.992. Tiny, consistent lift. | Prefer this CSV if submitting a blend |
 
 Did **not** submit to the leaderboard. Did **not** add coverage features. Did **not** drop notifications/app_opens.
+
+## Full-data screens (691,369 train, fewer folds — not a 5-fold score)
+
+Exact-value TE must not be judged on an 80k subsample: repeat frequency collapses and
+unseen-value rates are fake. These rows use the **full train**.
+
+| experiment | hypothesis | change | CV AUC | fold std | runtime | conclusion | next step |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| lgbm_nocat_exact_te_v1_diag | Exact numeric values carry playground identity that raw splits miss | `lgbm_nocat` + fold-safe LOO TE on notif/app/sleep/age/gaming/work; 3-fold full data | 0.923636 | 0.000601 | 17s | **−0.040 vs lgbm_nocat.** Unseen=0 (not leakage). Best iter 20–31. `age_exact_te` stole 17% gain; predictions compressed. Identity is real univariately (notif TE 0.76 vs raw 0.49) but already inside deep LGBM. **Stop TE-in-GBM. No 5-fold.** | Do not inject lookup TE into LightGBM. Residual of nocat is not in generator arithmetic either |
 
 ## Diagnostic ranking (80k rows, 3-fold, seed 42 — not a leaderboard number)
 
@@ -41,7 +53,7 @@ Did **not** submit to the leaderboard. Did **not** add coverage features. Did **
 
 - Original 7,500-row source: label is exactly `addiction_level ∈ {Moderate, Severe}`. A depth-3 tree of `daily_screen ≳ 8` or `social_media ≳ 4` already has ~0.99 AUC. Notifications, app opens, cats, gaming, work are ~0.50 there.
 - Playground keeps the ~71% positive rate and the usage ranking, but **smooths** the hard rule (continuous daily AUC 0.890 >> stump 0.81) and **masks** ~14% of daily_screen (MCAR vs label).
-- Playground also **entangles notifications and app_opens with the label via interactions** that do not exist in the original table (original LGBM is flat/better without them; playground LGBM loses ~0.016 AUC if they are dropped). Keep those two columns.
+- Playground also **entangles notifications and app_opens with the label via exact-value identity**, not a monotone ranking (raw notif AUC 0.49, fold-safe exact-value TE 0.76). Deep LightGBM already harvests that identity: dropping the columns costs ~0.016, but *explicit* TE does not add ranking on top of `lgbm_nocat`.
 - Categoricals remain noise on both tables. Safe to drop.
 - `id` is a sequential split, not a leak. Train/test value drift is negligible.
 
@@ -50,16 +62,25 @@ Did **not** submit to the leaderboard. Did **not** add coverage features. Did **
 - Trees, not linear models (logreg 0.911 vs GBM 0.954 on the same 80k protocol).
 - LightGBM ≳ HistGB > XGBoost at the default-ish params used here.
 - Explicit coverage features (`strong3_row_mean`) and the original OR-score do not beat native missing handling.
+- Fold-safe exact-value TE is a real univariate signal and a harmful GBM feature (early-stopping hijack). Do not put lookup TE into `lgbm_nocat`.
 
 **Is CV trustworthy?**
 
 - Fold std ≈ 0.0003 on 80k×3 and 0.0006 on full 5-fold. Rankings held: `lgbm_nocat` still beats HistGB; blend still helps, but the full-data lift is much smaller.
+- The TE screen’s −0.040 is ~70× fold std. Not a noisy CV flip. Unseen-value share was 0, so this is overfit of lookup features, not val→train leakage.
 
 **Complementary errors?**
 
 - On 80k diagnostics, LGBM vs HistGB Pearson ≈ 0.99 and grid blend added ~0.0006.
 - On full 5-fold OOF the same pair is Pearson 0.992. Grid 0.85/0.15 adds only **+0.000035**. HistGB is a weaker partner here because it capped at 500 trees on sklearn 1.6.1 without `X_val`.
-- Do not average in failed ablations (`usage_core`).
+- Do not average in failed ablations (`usage_core`, `lgbm_nocat_exact_te_v1`).
+- Grid-blending `lgbm_nocat` OOF with fold-safe notif/app TE is ≤ **+0.00002**. Logistic stack of nocat+TE **hurts** (−0.0007).
+
+**Where is `lgbm_nocat` still wrong?**
+
+- ~93k-row hard band (OOF p ∈ (0.3, 0.7)): 50.0% positive, OOF AUC only 0.641.
+- Inside that band **every raw column has AUC ≈ 0.50**. `other_screen`, `component_sum`, weekend−daily, value-frequency, and fractional parts have residual correlation ≈ 0 with `y − p_nocat`.
+- Remaining errors look like generator noise / conflicting usage, not a missing arithmetic feature.
 
 ## Full 5-fold jobs (done)
 
@@ -69,6 +90,10 @@ Did **not** submit to the leaderboard. Did **not** add coverage features. Did **
 
 Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submissions/blend_nocat.csv`). Do not `kaggle competitions submit` unless explicitly asked.
 
+## Full-data screens (done, no 5-fold follow-up)
+
+1. `configs/lgbm_nocat_exact_te_v1.yaml` with `--n-splits 3` — OOF 0.923636. Report: `reports/lgbm_nocat_exact_te_v1.html`.
+
 ## Not worth more budget
 
 - Baseline ratio engineering.
@@ -76,3 +101,7 @@ Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submi
 - Dropping notifications or app_opens.
 - Mixing original 7,500 rows into train (component dependence differs: original `daily` ⟂ social+gaming+work; playground never violates `daily ≥ sum`).
 - Stacking extra coverage features on top of `lgbm_nocat`.
+- Fold-safe exact-value target encoding **inside** LightGBM (lookup hijacks early stopping; already in the deep tree).
+- Mean-blending nocat with OOF exact-value TE (≤ +0.00002).
+- `other_screen` / `component_sum` / `weekend − daily` / value-frequency / fractional parts as extra GBM columns (residual vs nocat ≈ 0).
+- Another LGBM+HistGB probability blend pass.
