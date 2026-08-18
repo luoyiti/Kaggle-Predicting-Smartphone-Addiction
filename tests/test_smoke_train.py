@@ -121,6 +121,43 @@ def test_smoke_histgb_and_logreg_backends(tmp_path, baseline_config_path):
         assert len(artifacts["oof"]) == len(train_df)
 
 
+def test_histgb_fit_accepts_missing_x_val():
+    """Kaggle images may ship sklearn < 1.7, where HistGB.fit has no X_val."""
+    from s6e8.models.train import _filter_init_kwargs, fit_histgb
+
+    class OldHistGB:
+        def __init__(self, learning_rate=0.1, max_iter=100):
+            self.learning_rate = learning_rate
+            self.max_iter = max_iter
+            self.fit_args = None
+
+        def fit(self, X, y, sample_weight=None):
+            self.fit_args = {"X": X, "y": y, "sample_weight": sample_weight}
+            return self
+
+    class NewHistGB:
+        def __init__(self, learning_rate=0.1, max_iter=100, categorical_features="from_dtype"):
+            self.learning_rate = learning_rate
+            self.max_iter = max_iter
+            self.categorical_features = categorical_features
+            self.fit_args = None
+
+        def fit(self, X, y, sample_weight=None, *, X_val=None, y_val=None):
+            self.fit_args = {"X": X, "y": y, "X_val": X_val, "y_val": y_val}
+            return self
+
+    old = OldHistGB()
+    fit_histgb(old, "Xtr", "ytr", "Xva", "yva")
+    assert old.fit_args == {"X": "Xtr", "y": "ytr", "sample_weight": None}
+
+    new = NewHistGB()
+    fit_histgb(new, "Xtr", "ytr", "Xva", "yva")
+    assert new.fit_args == {"X": "Xtr", "y": "ytr", "X_val": "Xva", "y_val": "yva"}
+
+    filtered = _filter_init_kwargs(OldHistGB, {"learning_rate": 0.06, "categorical_features": "from_dtype"})
+    assert filtered == {"learning_rate": 0.06}
+
+
 def test_diagnostic_override_renames_experiment(baseline_config_path):
     from s6e8.models.train import apply_diagnostic_overrides
 

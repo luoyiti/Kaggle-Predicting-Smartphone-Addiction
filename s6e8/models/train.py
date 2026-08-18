@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import random
 from pathlib import Path
@@ -362,7 +363,49 @@ def _fold_catboost(X_tr, y_tr, X_va, y_va, X_test, ctx):
     return va_pred, te_pred, best_iter
 
 
+def _callable_accepts(fn: Callable[..., Any], name: str) -> bool:
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    if name in params:
+        return True
+    return any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
+def _filter_init_kwargs(cls: type, params: dict[str, Any]) -> dict[str, Any]:
+    try:
+        sig = inspect.signature(cls.__init__)
+    except (TypeError, ValueError):
+        return params
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return params
+    allowed = set(sig.parameters) - {"self"}
+    dropped = sorted(k for k in params if k not in allowed)
+    if dropped:
+        print(f"Dropping unsupported {cls.__name__} params: {dropped}", flush=True)
+        return {k: v for k, v in params.items() if k in allowed}
+    return params
+
+
+def fit_histgb(clf: Any, X_tr, y_tr, X_va, y_va) -> Any:
+    """Fit HistGB on sklearn 1.7+ (X_val) and older Kaggle images (no X_val)."""
+    if _callable_accepts(clf.fit, "X_val"):
+        clf.fit(X_tr, y_tr, X_val=X_va, y_val=y_va)
+        return clf
+    import sklearn
+
+    print(
+        f"sklearn {sklearn.__version__} HistGB.fit has no X_val; "
+        "early-stopping uses validation_fraction on the fold train split.",
+        flush=True,
+    )
+    clf.fit(X_tr, y_tr)
+    return clf
+
+
 def _fold_histgb(X_tr, y_tr, X_va, y_va, X_test, ctx):
+    import sklearn
     from sklearn.ensemble import HistGradientBoostingClassifier
 
     model_cfg = ctx["config"]["model"]
@@ -373,9 +416,12 @@ def _fold_histgb(X_tr, y_tr, X_va, y_va, X_test, ctx):
     if "n_iter_no_change" not in params and "early_stopping_rounds" in model_cfg:
         params["n_iter_no_change"] = int(model_cfg["early_stopping_rounds"])
         params.setdefault("early_stopping", True)
-    params.setdefault("categorical_features", "from_dtype")
+    if _callable_accepts(HistGradientBoostingClassifier.__init__, "categorical_features"):
+        params.setdefault("categorical_features", "from_dtype")
+    params = _filter_init_kwargs(HistGradientBoostingClassifier, params)
+    print(f"histgb sklearn={sklearn.__version__}", flush=True)
     clf = HistGradientBoostingClassifier(**params)
-    clf.fit(X_tr, y_tr, X_val=X_va, y_val=y_va)
+    fit_histgb(clf, X_tr, y_tr, X_va, y_va)
     best_iter = int(getattr(clf, "n_iter_", 0) or 0)
     va_pred = clf.predict_proba(X_va)[:, 1]
     te_pred = clf.predict_proba(X_test)[:, 1]

@@ -153,6 +153,21 @@ def main() -> None:
         "oof_corr": corr.tolist(),
     }
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    records_dir = PROJECT_ROOT / "experiments"
+    records_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "experiment": name,
+        "cv_auc": auc,
+        "method": method,
+        "components": args.experiments,
+        "weights": weight_map,
+        "component_auc": {k: v for k, v in rows},
+        "n_train": int(len(blend_oof)),
+        "n_test": int(len(blend_test)),
+        "diagnostic": False,
+        "change": f"grid/mean blend of {', '.join(args.experiments)}",
+    }
+    (records_dir / f"{name}.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
     sub_dir = Path(args.submission_dir)
     if not sub_dir.is_absolute():
         sub_dir = PROJECT_ROOT / sub_dir
@@ -160,7 +175,7 @@ def main() -> None:
     pd.DataFrame({"id": test_ids, "addicted_label": blend_test}).to_csv(
         sub_dir / f"{name}.csv", index=False
     )
-    print(f"wrote oof/{name}/ and submissions/{name}.csv")
+    print(f"wrote oof/{name}/, experiments/{name}.json, and submissions/{name}.csv")
 
 
 if __name__ == "__main__":
