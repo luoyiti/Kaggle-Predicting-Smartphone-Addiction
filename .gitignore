@@ -31,6 +31,7 @@ data/raw/*
 reports/**
 !reports/.gitkeep
 !reports/eda_report.html
+!reports/lgbm_nocat_exact_te_v1.html
 !reports/index.html
 !reports/vercel.json
 
