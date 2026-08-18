@@ -1,0 +1,81 @@
+experiment:
+  name: xgb_raw
+  seed: 42
+  data_version: v1
+  feature_version: raw_v1
+  model_version: xgb_v1
+  hypothesis: >
+    XGBoost hist on the same raw columns as lgbm_raw, for a second boosted-tree
+    family whose OOF errors may be complementary.
+  change: Identical features to lgbm_raw; model.name xgboost.
+
+runtime:
+  accelerator: cpu
+  enable_internet: true
+
+competition:
+  slug: playground-series-s6e8
+  task: binary_classification
+  target: addicted_label
+  id_col: id
+  metric: roc_auc
+  positive_class: 1
+
+paths:
+  train: data/raw/train.csv
+  test: data/raw/test.csv
+  sample_submission: data/raw/sample_submission.csv
+  oof_dir: oof
+  submission_dir: submissions
+
+cv:
+  type: stratified
+  n_splits: 5
+  shuffle: true
+
+features:
+  numeric:
+    - age
+    - daily_screen_time_hours
+    - social_media_hours
+    - gaming_hours
+    - work_study_hours
+    - sleep_hours
+    - notifications_per_day
+    - app_opens_per_day
+    - weekend_screen_time
+  categorical:
+    - gender
+    - stress_level
+    - academic_work_impact
+  engineering:
+    add_n_missing: false
+    add_missing_indicators: false
+    add_leisure_hours: false
+    add_screen_sleep_ratio: false
+    add_weekend_weekday_ratio: false
+    add_notif_per_open: false
+    ratio_eps: 1.0e-6
+
+model:
+  name: xgboost
+  num_boost_round: 5000
+  early_stopping_rounds: 100
+  log_evaluation: 100
+  params:
+    objective: binary:logistic
+    eval_metric: auc
+    learning_rate: 0.05
+    max_depth: 6
+    min_child_weight: 50
+    subsample: 0.8
+    colsample_bytree: 0.8
+    reg_lambda: 1.0
+    tree_method: hist
+    verbosity: 0
+
+output:
+  save_oof: true
+  save_test: true
+  save_submission: true
+  dtype: float64

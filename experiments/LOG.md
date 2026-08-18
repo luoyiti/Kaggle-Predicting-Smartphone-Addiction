@@ -1,34 +1,58 @@
 # S6E8 experiment log
 
-Scores in the **diagnostic** rows use a stratified train subsample and fewer folds.
-They are for ranking hypotheses only. A number is a competition result only when
+Diagnostic rows use a **stratified 80,000-row train subsample**, 3 folds, seed 42.
+They rank hypotheses. They are **not** competition scores. A result counts only when
 `diagnostic` is false, `n_splits=5`, full train, and `oof/<name>/metrics.json` exists.
 
 | experiment | hypothesis | change | CV AUC | fold std | runtime | conclusion | next step |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| baseline | Current YAML (ratios + n_missing + leisure) is a usable GBM starting point | LightGBM 5-fold, seed 42 | _pending full 5-fold_ | | | Control. Do not overwrite. | Compare `lgbm_raw` |
-| lgbm_raw | Ratio/leisure/n_missing dilute raw usage levels | All engineering flags off; same LGBM | | | | | |
-| lgbm_strong3_mean | Missing daily_screen is the main hole; skip-NA mean of daily/weekend/social restores coverage | `lgbm_raw` + `add_strong3_row_mean` | | | | | |
+| baseline_diag80000 | Current ratios + n_missing are a fine GBM start | LightGBM, 17 cols | 0.953145 | 0.000256 | 18s | Control. Engineering is not free. | Compare raw |
+| lgbm_raw_diag80000 | Ratios dilute raw usage | All engineering off | **0.954115** | 0.000345 | 18s | **+0.001 vs baseline.** Drop the ratio/leisure/n_missing block. | Keep raw as default feature set |
+| lgbm_strong3_mean_diag80000 | Skip-NA mean of daily/weekend/social fills missing daily | raw + `strong3_row_mean` | 0.954120 | 0.000293 | 18s | Flat vs raw. Worse on the daily-missing slice (0.9149 vs 0.9153). Trees already use surrogates. **Stop.** | Do not ship this feature |
+| histgb_raw_diag80000 | Different tree family, same raw cols | sklearn HistGB | 0.954050 | 0.000357 | 12s | Matches LightGBM. Corr 0.989. | Blend partner |
+| xgb_raw_diag80000 | Third boosted-tree family | XGBoost hist | 0.952247 | 0.000398 | 28s | −0.002 vs LGBM. Not worth extra complexity at these params. | Stop unless GPU/tune later |
+| lgbm_usage_core_diag80000 | Original-noise columns can be dropped | Drop cats + notifications + app_opens | 0.938491 | 0.000541 | 9s | **−0.016. Failed.** Notifications/app_opens are weak univariate but high GBM gain on playground. | Split the drop |
+| lgbm_nocat_diag80000 | Only categoricals are noise | Drop gender/stress/academic | **0.954317** | 0.000303 | 15s | Small gain vs raw. Best single model in this ranking. | Full 5-fold on Kaggle |
+| logreg_raw_diag80000 | Surface is nearly linear in usage | Logistic + median impute | 0.911040 | 0.001395 | 1s | Far below trees. Corr 0.87 with LGBM, but too weak to help a mean blend. | Not a stacker at this strength |
+| histgb_nocat_diag80000 | HistGB on the nocat feature set | HistGB + drop cats | 0.953985 | 0.000313 | 10s | Matches LGBM within 0.0003. | Blend with lgbm_nocat |
+| blend_nocat_diag80000 | Complementary tree errors | Grid 0.55 LGBM + 0.45 HistGB | **0.954887** | — | — | +0.00057 vs best single. Corr 0.990 — small, consistent lift. | Repeat on full 5-fold OOF |
 
-## Modeling diagnosis (from EDA + original 7,500-row source)
+## Answers so far
 
-What actually drives `addicted_label`:
+**What actually determines `addicted_label`?**
 
-- On Jay Joshi's original table, `addicted_label` is **exactly** `addiction_level in {Moderate, Severe}` (Mild and missing level are 0). Playground dropped `addiction_level`.
-- A depth-3 tree on original data reaches ~0.989 AUC using almost only `daily_screen_time_hours` (split ~8.0h) and `social_media_hours` (split ~4.0h). Weekend is a scaled copy of daily (r=0.96). Gaming, work, notifications, app opens, stress, academic impact, gender are ~0.50 AUC on original.
-- Playground **preserves the positive rate** (~70.9% vs original 70.8%) and the strong screen/social/weekend univariate ranking, but:
-  - Labels are smoothed (daily≥8 stump AUC 0.81 vs continuous daily 0.890). Keep raw continuous values; do not binarize the original rule.
-  - Features are masked (~14% daily missing, MCAR vs label, missing-indicator AUC≈0.50). Original had **zero** feature missingness. The modeling problem is recovering the latent usage when the main column is gone.
-  - Component algebra changed: original `daily` is independent of social+gaming+work (60% "violations"); playground never violates `daily >= social+gaming+work`. So playground `work`/`gaming` AUC (0.65/0.62) is mostly **through daily**, not an independent original cause.
-- Train/test value PSI/KS are negligible. Missing-rate gaps exist (up to 3.4%) but are not label-informative.
-- Current baseline ratios (`screen_sleep_ratio`, `weekend_weekday_ratio`, `leisure_hours`, `notif_per_open`) are univariate-weaker than their components. `n_missing` is noise.
-- `id` is a sequential split (train 0..691368, test after). No id leak (AUC 0.501).
-- Do **not** mix original 7,500 rows into train until a dedicated experiment: the joint law of screen components is different, so it can inject the wrong dependence.
+- Original 7,500-row source: label is exactly `addiction_level ∈ {Moderate, Severe}`. A depth-3 tree of `daily_screen ≳ 8` or `social_media ≳ 4` already has ~0.99 AUC. Notifications, app opens, cats, gaming, work are ~0.50 there.
+- Playground keeps the ~71% positive rate and the usage ranking, but **smooths** the hard rule (continuous daily AUC 0.890 >> stump 0.81) and **masks** ~14% of daily_screen (MCAR vs label).
+- Playground also **entangles notifications and app_opens with the label via interactions** that do not exist in the original table (original LGBM is flat/better without them; playground LGBM loses ~0.016 AUC if they are dropped). Keep those two columns.
+- Categoricals remain noise on both tables. Safe to drop.
+- `id` is a sequential split, not a leak. Train/test value drift is negligible.
 
-Implication: a GBM on raw usage columns should already be strong (80k×3-fold probe OOF ~0.95, not a competition score). The first attributable questions are (1) whether the current engineering hurts, (2) whether an explicit coverage feature for missing daily helps, (3) whether other tree families have complementary errors.
+**What model fits this generator?**
 
-## Probe notes (not competition scores)
+- Trees, not linear models (logreg 0.911 vs GBM 0.954 on the same 80k protocol).
+- LightGBM ≳ HistGB > XGBoost at the default-ish params used here.
+- Explicit coverage features (`strong3_row_mean`) and the original OR-score do not beat native missing handling.
 
-- 80k-row 3-fold LightGBM on raw-ish columns: OOF ≈ 0.953.
-- Same protocol, `daily_screen_time_hours` only: OOF ≈ 0.869 (univariate 0.890 is on **observed** rows only).
-- `or_usage_score` = max(daily/8, social/4, weekend/9.92): univariate 0.888, coverage 97.8%. Weaker than EDA `strong3_row_mean` 0.916. Original hard OR rule is not the playground surface.
+**Is CV trustworthy?**
+
+- Fold std ≈ 0.0003 on 80k×3. Rankings are stable. Absolute 80k AUC is **not** the leaderboard number; full 691k×5 still has to be run on Kaggle Kernels.
+
+**Complementary errors?**
+
+- LGBM vs HistGB Pearson ≈ 0.99. Grid blend still adds ~0.0006. Logreg is more complementary and too inaccurate. Do not average in failed ablations (`usage_core`).
+
+## Recommended next Kaggle Train jobs (full 5-fold)
+
+1. `configs/lgbm_nocat.yaml` (CPU) — primary single model.
+2. `configs/histgb_nocat.yaml` (CPU) — blend partner.
+3. After both OOF files exist: `python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid`.
+
+Do not submit to the leaderboard unless the workflow input `submit_to_kaggle=true`.
+
+## Not worth more budget
+
+- Baseline ratio engineering.
+- `strong3_row_mean` / `strong3_row_max` / `or_usage_score` for GBMs.
+- Dropping notifications or app_opens.
+- Mixing original 7,500 rows into train (component dependence differs: original `daily` ⟂ social+gaming+work; playground never violates `daily ≥ sum`).
+- Wide hyperparameter search before the two full 5-fold runs above.

@@ -1,0 +1,92 @@
+experiment:
+  name: lgbm_usage_core
+  seed: 42
+  data_version: v1
+  feature_version: usage_core_v1
+  model_version: lgbm_v1
+  hypothesis: >
+    On the original 7500-row source, gender/stress/academic/notifications/app_opens
+    are ~0.50 AUC. Dropping them from playground GBMs should be ~flat and may
+    slightly stabilize the missing-usage slice.
+  change: lgbm_raw plus features.drop of those five columns.
+
+runtime:
+  accelerator: cpu
+  enable_internet: true
+
+competition:
+  slug: playground-series-s6e8
+  task: binary_classification
+  target: addicted_label
+  id_col: id
+  metric: roc_auc
+  positive_class: 1
+
+paths:
+  train: data/raw/train.csv
+  test: data/raw/test.csv
+  sample_submission: data/raw/sample_submission.csv
+  oof_dir: oof
+  submission_dir: submissions
+
+cv:
+  type: stratified
+  n_splits: 5
+  shuffle: true
+
+features:
+  numeric:
+    - age
+    - daily_screen_time_hours
+    - social_media_hours
+    - gaming_hours
+    - work_study_hours
+    - sleep_hours
+    - notifications_per_day
+    - app_opens_per_day
+    - weekend_screen_time
+  categorical:
+    - gender
+    - stress_level
+    - academic_work_impact
+  drop:
+    - gender
+    - stress_level
+    - academic_work_impact
+    - notifications_per_day
+    - app_opens_per_day
+  engineering:
+    add_n_missing: false
+    add_missing_indicators: false
+    add_leisure_hours: false
+    add_screen_sleep_ratio: false
+    add_weekend_weekday_ratio: false
+    add_notif_per_open: false
+    ratio_eps: 1.0e-6
+
+model:
+  name: lightgbm
+  num_boost_round: 5000
+  early_stopping_rounds: 100
+  log_evaluation: 100
+  params:
+    objective: binary
+    metric: auc
+    boosting_type: gbdt
+    learning_rate: 0.05
+    num_leaves: 63
+    max_depth: -1
+    min_child_samples: 50
+    feature_fraction: 0.8
+    bagging_fraction: 0.8
+    bagging_freq: 1
+    lambda_l1: 0.0
+    lambda_l2: 1.0
+    verbosity: -1
+    num_threads: 0
+
+output:
+  save_oof: true
+  save_test: true
+  save_submission: true
+  dtype: float64

@@ -129,7 +129,8 @@ def main() -> None:
         blend_test = np.tensordot(weights, np.vstack(tests), axes=(0, 0))
 
     auc = float(roc_auc_score(y, blend_oof))
-    print(f"blend method={method} weights={dict(zip(args.experiments, weights.round(4)))} oof_auc={auc:.6f}")
+    weight_map = {k: float(v) for k, v in zip(args.experiments, weights)}
+    print(f"blend method={method} weights={weight_map} oof_auc={auc:.6f}")
     singles = ", ".join(f"{n}={a:.6f}" for n, a in rows)
     print(f"components: {singles}")
 
