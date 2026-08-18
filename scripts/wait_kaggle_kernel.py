@@ -48,9 +48,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _kaggle_cmd(*args: str) -> list[str]:
+    return [sys.executable, "-m", "kaggle", *args]
+
+
 def _status(kernel_id: str) -> str:
     proc = subprocess.run(
-        ["kaggle", "kernels", "status", kernel_id],
+        _kaggle_cmd("kernels", "status", kernel_id),
         capture_output=True,
         text=True,
     )
@@ -102,7 +106,7 @@ def dump_kernel_output(kernel_id: str) -> None:
     dest = Path(tempfile.mkdtemp(prefix="kaggle-kernel-logs-"))
     print(f"Downloading kernel output for failed run into {dest}", flush=True)
     proc = subprocess.run(
-        ["kaggle", "kernels", "output", kernel_id, "-p", str(dest)],
+        _kaggle_cmd("kernels", "output", kernel_id, "-p", str(dest)),
         capture_output=True,
         text=True,
     )
