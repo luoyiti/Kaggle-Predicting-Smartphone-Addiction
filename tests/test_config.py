@@ -25,6 +25,30 @@ def test_experiment_names_are_unique():
     assert len(names) == len(set(names))
 
 
+def test_histgb_long_is_a_training_budget_only_experiment():
+    """Catch feature/CV drift that would make the long-run comparison invalid."""
+    from pathlib import Path
+
+    control = load_config(Path("configs/histgb_nocat.yaml"))
+    candidate = load_config(Path("configs/histgb_nocat_long_v1.yaml"))
+    validate_config(candidate)
+
+    assert candidate["experiment"]["name"] == "histgb_nocat_long_v1"
+    assert candidate["experiment"]["seed"] == control["experiment"]["seed"]
+    assert candidate["cv"] == control["cv"]
+    assert candidate["features"] == control["features"]
+    assert candidate["model"]["name"] == control["model"]["name"] == "histgb"
+
+    control_model = dict(control["model"])
+    candidate_model = dict(candidate["model"])
+    control_params = dict(control_model.pop("params"))
+    candidate_params = dict(candidate_model.pop("params"))
+    assert candidate_model["num_boost_round"] > control_model["num_boost_round"]
+    candidate_model["num_boost_round"] = control_model["num_boost_round"]
+    assert candidate_model == control_model
+    assert candidate_params == control_params
+
+
 def test_train_help_mentions_config():
     import subprocess
     import sys
