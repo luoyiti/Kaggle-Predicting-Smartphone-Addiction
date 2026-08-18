@@ -8,7 +8,7 @@
 - **目标列**：`addicted_label`（0=未成瘾，1=成瘾）。提交 **P(class=1)**，不是硬标签。
 - **指标**：ROC-AUC（预测概率 vs 真实标签）。`addicted_label` 是 target，不是 metric。
 - **提交**：`id,addicted_label`（概率，例 `691369,0.2`）。
-- **规模**：train 691,369；test 296,302；正类约 43%。Kaggle 合成数据；原始源约 7,500 行（Jay Joshi 合成行为集）。
+- **规模**：train 691,369；test 296,302；正类约 **71%**（EDA 实测 70.94%；原始 7,500 行源数据同样约 71%）。Kaggle 合成数据；原始源约 7,500 行（Jay Joshi 合成行为集）。
 - **特征**：数值 `age, daily_screen_time_hours, social_media_hours, gaming_hours, work_study_hours, sleep_hours, notifications_per_day, app_opens_per_day, weekend_screen_time`；类别 `gender`（Male/Female/Other）、`stress_level`（Low/Medium/High）、`academic_work_impact`（Yes/No）。缺失普遍。
 - **赛程**：2026-08-01 开始，**2026-08-31 23:59 UTC** 截止（报名/组队同日）。
 

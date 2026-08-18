@@ -1,0 +1,21 @@
+{
+  "experiment": "blend_nocat",
+  "cv_auc": 0.9638061091095992,
+  "method": "grid",
+  "components": [
+    "lgbm_nocat",
+    "histgb_nocat"
+  ],
+  "weights": {
+    "lgbm_nocat": 0.85,
+    "histgb_nocat": 0.15
+  },
+  "component_auc": {
+    "lgbm_nocat": 0.9637713704727537,
+    "histgb_nocat": 0.9621397202974065
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "grid/mean blend of lgbm_nocat, histgb_nocat"
+}

@@ -4,18 +4,53 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
+
+DEFAULT_STRONG_USAGE_COLS = (
+    "daily_screen_time_hours",
+    "weekend_screen_time",
+    "social_media_hours",
+)
+DEFAULT_OTHER_SCREEN_TOTAL = "daily_screen_time_hours"
+DEFAULT_OTHER_SCREEN_PARTS = (
+    "social_media_hours",
+    "gaming_hours",
+    "work_study_hours",
+)
 
 
 def _ratio(numer: pd.Series, denom: pd.Series, eps: float) -> pd.Series:
     return numer / (denom + eps)
 
 
+def _finite_median(s: pd.Series, fallback: float = 1.0) -> float:
+    med = float(s.median())
+    if not np.isfinite(med) or med == 0.0:
+        return fallback
+    return med
+
+
+def _row_scaled_reduce(df: pd.DataFrame, cols: list[str], how: str, eps: float) -> pd.Series:
+    parts = []
+    for col in cols:
+        if col not in df.columns:
+            raise KeyError(f"strong_usage column {col!r} is missing")
+        scale = _finite_median(df[col], fallback=1.0)
+        parts.append(df[col] / max(scale, eps))
+    stacked = pd.concat(parts, axis=1)
+    if how == "mean":
+        return stacked.mean(axis=1)
+    if how == "max":
+        return stacked.max(axis=1)
+    raise ValueError(f"Unknown row reduce {how!r}")
+
+
 def add_engineered_features(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
     """Row-wise transforms only — no target statistics, no fold leakage."""
     out = df.copy()
     feat_cfg = config["features"]
-    eng = feat_cfg.get("engineering", {})
+    eng = feat_cfg.get("engineering", {}) or {}
     eps = float(eng.get("ratio_eps", feat_cfg.get("ratio_eps", 1e-6)))
     numeric = feat_cfg["numeric"]
     categorical = feat_cfg["categorical"]
@@ -47,6 +82,52 @@ def add_engineered_features(df: pd.DataFrame, config: dict[str, Any]) -> pd.Data
             out["notifications_per_day"], out["app_opens_per_day"], eps
         )
 
+    if eng.get("add_other_screen_hours", False):
+        spec = eng.get("other_screen") or {}
+        total = spec.get("total", DEFAULT_OTHER_SCREEN_TOTAL)
+        parts = list(spec.get("parts") or DEFAULT_OTHER_SCREEN_PARTS)
+        residual = out[total]
+        for part in parts:
+            residual = residual - out[part]
+        out["other_screen_hours"] = residual.clip(lower=0)
+
+    if eng.get("add_component_sum", False):
+        spec = eng.get("other_screen") or {}
+        parts = list(spec.get("parts") or DEFAULT_OTHER_SCREEN_PARTS)
+        summed = out[parts[0]]
+        for part in parts[1:]:
+            summed = summed + out[part]
+        out["component_sum"] = summed
+
+    if eng.get("add_screen_imputed_weekend", False):
+        daily = out["daily_screen_time_hours"]
+        weekend = out["weekend_screen_time"]
+        ratio = float((weekend / daily.replace(0, np.nan)).median())
+        if not np.isfinite(ratio) or ratio <= 0:
+            ratio = 1.24
+        out["screen_imputed_weekend"] = daily.fillna(weekend / ratio)
+
+    strong_cols = list(eng.get("strong_usage_cols") or DEFAULT_STRONG_USAGE_COLS)
+    if eng.get("add_strong3_row_mean", False):
+        out["strong3_row_mean"] = _row_scaled_reduce(out, strong_cols, "mean", eps)
+    if eng.get("add_strong3_row_max", False):
+        out["strong3_row_max"] = _row_scaled_reduce(out, strong_cols, "max", eps)
+
+    if eng.get("add_or_usage_score", False):
+        thresholds = dict(eng.get("or_usage_thresholds") or {})
+        if not thresholds:
+            thresholds = {
+                "daily_screen_time_hours": 8.0,
+                "social_media_hours": 4.0,
+                "weekend_screen_time": 9.92,
+            }
+        terms = []
+        for col, threshold in thresholds.items():
+            if col not in out.columns:
+                raise KeyError(f"or_usage column {col!r} is missing")
+            terms.append(out[col] / float(threshold))
+        out["or_usage_score"] = pd.concat(terms, axis=1).max(axis=1)
+
     return out
 
 
@@ -61,7 +142,8 @@ def cast_categoricals(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
 def feature_columns(df: pd.DataFrame, config: dict[str, Any]) -> list[str]:
     id_col = config["competition"]["id_col"]
     target = config["competition"]["target"]
-    drop = {id_col, target}
+    extra_drop = config["features"].get("drop") or []
+    drop = {id_col, target, *extra_drop}
     cols = [c for c in df.columns if c not in drop]
     return cols
 

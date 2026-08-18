@@ -700,6 +700,12 @@ class EDASession:
             "screen_sleep_ratio",
             "weekend_weekday_ratio",
             "notif_per_open",
+            "other_screen_hours",
+            "component_sum",
+            "screen_imputed_weekend",
+            "strong3_row_mean",
+            "strong3_row_max",
+            "or_usage_score",
         ]
         rows = []
         raw_auc = {
@@ -713,6 +719,24 @@ class EDASession:
             "weekend_weekday_ratio": ["weekend_screen_time", "daily_screen_time_hours"],
             "notif_per_open": ["notifications_per_day", "app_opens_per_day"],
             "n_missing": [],
+            "other_screen_hours": ["daily_screen_time_hours"],
+            "component_sum": ["social_media_hours", "gaming_hours", "work_study_hours"],
+            "screen_imputed_weekend": ["daily_screen_time_hours", "weekend_screen_time"],
+            "strong3_row_mean": [
+                "daily_screen_time_hours",
+                "weekend_screen_time",
+                "social_media_hours",
+            ],
+            "strong3_row_max": [
+                "daily_screen_time_hours",
+                "weekend_screen_time",
+                "social_media_hours",
+            ],
+            "or_usage_score": [
+                "daily_screen_time_hours",
+                "social_media_hours",
+                "weekend_screen_time",
+            ],
         }
         for name in names:
             if name not in self.engineered.columns:
@@ -751,6 +775,12 @@ class EDASession:
                                 "screen_sleep_ratio": "add_screen_sleep_ratio",
                                 "weekend_weekday_ratio": "add_weekend_weekday_ratio",
                                 "notif_per_open": "add_notif_per_open",
+                                "other_screen_hours": "add_other_screen_hours",
+                                "component_sum": "add_component_sum",
+                                "screen_imputed_weekend": "add_screen_imputed_weekend",
+                                "strong3_row_mean": "add_strong3_row_mean",
+                                "strong3_row_max": "add_strong3_row_max",
+                                "or_usage_score": "add_or_usage_score",
                             }[name],
                             False,
                         )

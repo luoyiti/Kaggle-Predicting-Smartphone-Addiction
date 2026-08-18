@@ -218,8 +218,9 @@ def experiment_summary(
     cv_auc: float | None = None,
     runtime_seconds: float | None = None,
     git_commit: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "experiment": config["experiment"]["name"],
         "git_commit": git_commit,
         "config": config.get("_config_path"),
@@ -233,3 +234,10 @@ def experiment_summary(
         "timestamp": utc_timestamp(),
         "environment": detect_environment(),
     }
+    exp = config.get("experiment") or {}
+    for key in ("hypothesis", "change", "diagnostic"):
+        if key in exp and exp[key] is not None:
+            payload[key] = exp[key]
+    if extra:
+        payload.update(extra)
+    return payload

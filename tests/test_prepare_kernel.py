@@ -91,3 +91,29 @@ def test_runner_ignores_jupyter_kernel_args(repo_root):
     )
     assert args.config == "configs/baseline.yaml"
     assert args.accelerator is None
+
+
+def test_copy_outputs_to_kaggle_working(tmp_path, repo_root, monkeypatch):
+    import importlib.util
+
+    path = repo_root / "kaggle" / "runner.py"
+    spec = importlib.util.spec_from_file_location("kaggle_runner_copy", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    working = tmp_path / "working"
+    working.mkdir()
+    src_root = tmp_path / "src"
+    (src_root / "oof" / "lgbm_nocat").mkdir(parents=True)
+    (src_root / "oof" / "lgbm_nocat" / "metrics.json").write_text("{}", encoding="utf-8")
+    (src_root / "submissions").mkdir()
+    (src_root / "submissions" / "lgbm_nocat.csv").write_text("id,pred\n1,0.2\n", encoding="utf-8")
+    (src_root / "experiments").mkdir()
+    (src_root / "experiments" / "lgbm_nocat.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(module, "KAGGLE_WORKING", working)
+    module.copy_outputs_to_kaggle_working(src_root)
+    assert (working / "oof" / "lgbm_nocat" / "metrics.json").is_file()
+    assert (working / "submissions" / "lgbm_nocat.csv").is_file()
+    assert (working / "experiments" / "lgbm_nocat.json").is_file()

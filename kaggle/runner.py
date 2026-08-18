@@ -18,6 +18,7 @@ import base64
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -184,6 +185,32 @@ def maybe_install_requirements(root: Path) -> None:
     subprocess.run(cmd, check=True)
 
 
+OUTPUT_DIR_NAMES = ("oof", "submissions", "experiments")
+
+
+def copy_outputs_to_kaggle_working(root: Path) -> None:
+    """Kaggle only publishes /kaggle/working. Training may have written under src/."""
+    if not KAGGLE_WORKING.exists():
+        return
+    try:
+        root_resolved = root.resolve()
+        working_resolved = KAGGLE_WORKING.resolve()
+    except OSError:
+        root_resolved = root
+        working_resolved = KAGGLE_WORKING
+    for name in OUTPUT_DIR_NAMES:
+        src = root_resolved / name
+        if not src.is_dir():
+            continue
+        dest = working_resolved / name
+        if src == dest:
+            continue
+        print(f"Copying {src} -> {dest}", flush=True)
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src, dest)
+
+
 def run_train(root: Path, ctx: dict[str, Any], overwrite: bool) -> None:
     env = os.environ.copy()
     if ctx.get("git_commit"):
@@ -233,6 +260,7 @@ def main() -> None:
     print(f"kaggle_runner repo_root={root}")
     maybe_install_requirements(root)
     run_train(root, ctx, overwrite=args.overwrite)
+    copy_outputs_to_kaggle_working(root)
 
 
 if __name__ == "__main__":

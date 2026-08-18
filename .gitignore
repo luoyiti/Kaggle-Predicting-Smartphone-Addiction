@@ -49,5 +49,6 @@ logs/
 
 # Kaggle / CI working copies
 .kernel-staging/
+.kernel-staging*/
 kaggle/output/
 artifacts/
