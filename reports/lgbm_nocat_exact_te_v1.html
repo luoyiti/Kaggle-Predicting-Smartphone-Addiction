@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="description" content="lgbm_nocat 上的 fold-safe exact-value target encoding：全量 3-fold OOF 0.9236，相对 0.9638 大跌。身份信号真实，但已被深树吸收；停止该路线，不跑 5-fold。"/>
+<title>S6E8 exact-value TE 实验报告</title>
+<style>
+:root {
+  --bg: #f6f4ef;
+  --card: #fffdf8;
+  --ink: #1c2833;
+  --muted: #5d6d7e;
+  --line: #e5ddd0;
+  --good: #1e7a46;
+  --bad: #b03a2e;
+  --accent: #1a5276;
+  --warn: #b9770e;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.55;
+}
+header.hero {
+  background: #14283c;
+  color: #f4f6f7;
+  padding: 36px 24px 28px;
+}
+header.hero h1 { margin: 0 0 8px; font-size: 1.7rem; }
+header.hero p { margin: 0; max-width: 860px; color: #d5dee5; }
+main { max-width: 980px; margin: 0 auto; padding: 24px; }
+section {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px 22px;
+  margin: 0 0 18px;
+}
+h2 { margin: 0 0 12px; font-size: 1.2rem; color: var(--accent); }
+h3 { margin: 18px 0 8px; font-size: 1.02rem; }
+p, li { color: var(--ink); }
+.muted { color: var(--muted); }
+.tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+.tag.stop { background: #fadbd8; color: var(--bad); }
+.tag.ok { background: #d5f5e3; color: var(--good); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 12px 0 4px; }
+.kpi { background: #f8f1e7; border-radius: 10px; padding: 12px; }
+.kpi .v { font-size: 1.35rem; font-weight: 700; }
+.kpi .v.bad { color: var(--bad); }
+.kpi .v.good { color: var(--good); }
+.kpi .l { font-size: 12px; color: var(--muted); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { border-bottom: 1px solid var(--line); padding: 7px 8px; text-align: left; }
+th { background: #f3ece3; font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.callout { padding: 12px 14px; border-left: 4px solid var(--bad); background: #fdf2f0; border-radius: 0 8px 8px 0; }
+.callout.next { border-left-color: var(--accent); background: #eaf2f8; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; background: #f3ece3; padding: 1px 5px; border-radius: 4px; }
+.barwrap { margin: 8px 0 14px; }
+.barrow { display: grid; grid-template-columns: 210px 1fr 90px; gap: 8px; align-items: center; margin: 5px 0; font-size: 13px; }
+.bar { height: 10px; background: #eadfcf; border-radius: 99px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--accent); }
+.bar > span.bad { background: var(--bad); }
+.bar > span.good { background: var(--good); }
+footer { padding: 8px 24px 32px; color: var(--muted); font-size: 13px; text-align: center; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <h1>fold-safe exact-value target encoding：失败，且不要 5-fold</h1>
+  <p>实验 <code>lgbm_nocat_exact_te_v1</code> 只回答一个问题：Playground 连续/整数特征的<strong>具体取值</strong>是否还带着数据生成身份，值得在 <code>lgbm_nocat</code> 上显式做 OOF target encoding。结论：身份信号是真的，但深树已经吃掉；把 TE 塞进同一棵 LightGBM 会早停并毁掉主用量特征。</p>
+</header>
+<main>
+<section>
+  <h2>裁决 <span class="tag stop">STOP</span></h2>
+  <div class="kpis">
+    <div class="kpi"><div class="v good">0.963771</div><div class="l">lgbm_nocat 5-fold OOF</div></div>
+    <div class="kpi"><div class="v bad">0.923636</div><div class="l">exact TE 全量 3-fold OOF</div></div>
+    <div class="kpi"><div class="v bad">−0.040</div><div class="l">约 70× fold std，不是噪声</div></div>
+    <div class="kpi"><div class="v">20–31</div><div class="l">best iteration（nocat 是 1549–1912）</div></div>
+  </div>
+  <p class="callout">未跑正式 5-fold。跌幅远大于 CV 抖动，再花一轮 5-fold 只会复述失败。TE 配置保留为 <code>configs/lgbm_nocat_exact_te_v1.yaml</code>，便于复现，禁止覆盖。</p>
+</section>
+
+<section>
+  <h2>1. 假设与编码范围</h2>
+  <p>Playground 小时类变量几乎铺满 0.01 网格（<code>daily_screen</code> 1,387 个 unique / 595k 非缺失，中位重复 237 次）。通知与打开次数是整数（231 / 166 档），每个取值重复上千次。若生成器在复制/插值原始行，<strong>相同精确取值</strong>可能共享标签身份，而树的区间分裂会把相邻取值当成光滑曲面。</p>
+  <p>先在全量数据上做 <strong>5-fold OOF TE</strong>（只在 train fold 上 <code>groupby</code>，validation 不用标签）对比 raw AUC，再决定编码哪些列：</p>
+  <table>
+    <thead>
+      <tr><th>列</th><th class="num">nunique</th><th class="num">中位频次</th><th class="num">raw AUC</th><th class="num">OOF TE AUC</th><th class="num">Δ</th><th>v1 是否编码</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>notifications_per_day</code></td><td class="num">231</td><td class="num">2,194</td><td class="num">0.492</td><td class="num">0.763</td><td class="num">+0.271</td><td>是</td></tr>
+      <tr><td><code>app_opens_per_day</code></td><td class="num">166</td><td class="num">3,368</td><td class="num">0.541</td><td class="num">0.752</td><td class="num">+0.211</td><td>是</td></tr>
+      <tr><td><code>sleep_hours</code></td><td class="num">451</td><td class="num">1,296</td><td class="num">0.527</td><td class="num">0.595</td><td class="num">+0.068</td><td>是</td></tr>
+      <tr><td><code>age</code></td><td class="num">18</td><td class="num">37,596</td><td class="num">0.502</td><td class="num">0.552</td><td class="num">+0.049</td><td>是</td></tr>
+      <tr><td><code>gaming_hours</code></td><td class="num">401</td><td class="num">1,525</td><td class="num">0.622</td><td class="num">0.650</td><td class="num">+0.028</td><td>是</td></tr>
+      <tr><td><code>work_study_hours</code></td><td class="num">600</td><td class="num">1,062</td><td class="num">0.655</td><td class="num">0.675</td><td class="num">+0.020</td><td>是</td></tr>
+      <tr><td><code>weekend_screen_time</code></td><td class="num">1,436</td><td class="num">228</td><td class="num">0.881</td><td class="num">0.892</td><td class="num">+0.011</td><td>否（已单调）</td></tr>
+      <tr><td><code>daily_screen_time_hours</code></td><td class="num">1,387</td><td class="num">237</td><td class="num">0.890</td><td class="num">0.899</td><td class="num">+0.010</td><td>否（已单调）</td></tr>
+      <tr><td><code>social_media_hours</code></td><td class="num">721</td><td class="num">712</td><td class="num">0.858</td><td class="num">0.863</td><td class="num">+0.005</td><td>否（Spearman(TE,raw)=0.97）</td></tr>
+    </tbody>
+  </table>
+  <p>未编码 daily/weekend/social：它们的 TE 几乎就是 raw 的单调变换。编码的是「raw 弱、精确取值却可分」的列。其余条件与 <code>lgbm_nocat</code> 相同：9 个原始数值列保留，三类类别列丢弃，seed 42，LightGBM 超参不变。</p>
+</section>
+
+<section>
+  <h2>2. Fold-safe 协议（无 val→train 泄漏）</h2>
+  <ul>
+    <li>TE <strong>不</strong>在 <code>add_engineered_features</code> 里做。那个函数仍然是纯行变换。</li>
+    <li>每个 CV fold：只在 <code>X_tr, y_tr</code> 上统计 <code>(sum, count)</code>。</li>
+    <li>Train 行用 leave-one-out：<code>(sum − yᵢ + m·prior) / (n − 1 + m)</code>。</li>
+    <li>Validation / test 用该 fold 的 train map，<strong>不用</strong> val/test 标签。</li>
+    <li>smoothing <code>m=20</code>，<code>min_count=5</code> 回退到 fold prior；缺失保持 NaN。</li>
+    <li>取值键：<code>round(2)</code>，对齐小时 0.01 网格；整数列不变。</li>
+  </ul>
+  <p>3-fold 实测：validation unseen = <strong>0</strong>，rare（n&lt;5）每折大约 7–13 行。失败不是稀有值，也不是 CV leakage。</p>
+</section>
+
+<section>
+  <h2>3. 全量 3-fold 结果</h2>
+  <p>命令：<code>python3 scripts/train.py --config configs/lgbm_nocat_exact_te_v1.yaml --n-splits 3</code>。全量 691,369 行，不是 80k 子样本。实验名被标成 <code>lgbm_nocat_exact_te_v1_diag</code>。</p>
+  <table>
+    <thead><tr><th>fold</th><th class="num">AUC</th><th class="num">best iter</th><th class="num">te unseen</th><th class="num">te rare</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td class="num">0.926976</td><td class="num">31</td><td class="num">0</td><td class="num">13</td></tr>
+      <tr><td>2</td><td class="num">0.927544</td><td class="num">22</td><td class="num">0</td><td class="num">7</td></tr>
+      <tr><td>3</td><td class="num">0.928435</td><td class="num">20</td><td class="num">0</td><td class="num">11</td></tr>
+      <tr><td>mean / OOF</td><td class="num">0.927652 / <strong>0.923636</strong></td><td class="num">20–31</td><td class="num">0</td><td class="num">~10</td></tr>
+    </tbody>
+  </table>
+  <p>Train AUC 在第 31 轮已到 0.984，valid 0.927；第 100 轮 valid 掉到 ~0.91。模型在查找表上过拟合后被早停，永远走不到 nocat 那种 1500+ 轮的用量交互。</p>
+  <p>预测被压扁：TE 模型 mean 0.76、std 0.19、范围 0.19–0.94；nocat mean 0.71、std 0.37、范围 ~0–1。</p>
+  <div class="barwrap">
+    <div class="barrow"><span>lgbm_nocat 5-fold</span><div class="bar"><span class="good" style="width:96.4%"></span></div><span>0.9638</span></div>
+    <div class="barrow"><span>exact TE 3-fold</span><div class="bar"><span class="bad" style="width:92.4%"></span></div><span>0.9236</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>4. 六个问题</h2>
+  <h3>哪些变量的 exact-value TE 真正有效？</h3>
+  <p>单变量层面：<code>notifications_per_day</code> 和 <code>app_opens_per_day</code> 极有效（+0.27 / +0.21 AUC）。这解释了当年 <code>usage_core</code> 丢掉这两列会 −0.016：Playground 把身份缠进了精确整数档，而不是单调趋势。</p>
+  <p>塞进 LightGBM 之后：没有一列 TE 带来 OOF 提升。Gain 占比：</p>
+  <table>
+    <thead><tr><th>feature</th><th class="num">mean gain %</th></tr></thead>
+    <tbody>
+      <tr><td><code>daily_screen_time_hours</code></td><td class="num">39.7%</td></tr>
+      <tr><td><code>age_exact_te</code></td><td class="num">16.9%</td></tr>
+      <tr><td><code>social_media_hours</code></td><td class="num">16.1%</td></tr>
+      <tr><td><code>weekend_screen_time</code></td><td class="num">11.9%</td></tr>
+      <tr><td><code>notifications_per_day_exact_te</code></td><td class="num">7.4%</td></tr>
+      <tr><td><code>app_opens_per_day_exact_te</code></td><td class="num">5.3%</td></tr>
+      <tr><td>其余 TE / raw</td><td class="num">&lt;3%</td></tr>
+    </tbody>
+  </table>
+  <p><code>age_exact_te</code>（单变量只有 0.55）抢走了近 17% 的分裂，把 18 档年龄先验变成早停前的主切分。raw 的 notifications/sleep gain 掉到 0，完全被 TE 替换。</p>
+
+  <h3>TE 的 value count / frequency 与提升有什么关系？</h3>
+  <p>频次最高的列（notif / app_opens，中位 2k–3k）单变量 TE 最强，但 <strong>GBM 提升与频次无关</strong>：按 notifications 频次四分位，相对 nocat 的缺口稳定在 −0.03 到 −0.04。稀有值不是原因（unseen=0）。失败模式是「高置信查找表劫持贪心树」，发生在高频档，不是低频档。</p>
+
+  <h3>提升主要发生在哪些样本区域？</h3>
+  <p>没有任何区域提升。按 <code>daily_screen</code> 五分位，相对 nocat：</p>
+  <table>
+    <thead><tr><th>daily 分位</th><th class="num">TE AUC</th><th class="num">nocat AUC</th><th class="num">Δ</th></tr></thead>
+    <tbody>
+      <tr><td>Q1 低用量</td><td class="num">0.773</td><td class="num">0.905</td><td class="num">−0.132</td></tr>
+      <tr><td>Q2</td><td class="num">0.808</td><td class="num">0.906</td><td class="num">−0.098</td></tr>
+      <tr><td>Q3</td><td class="num">0.877</td><td class="num">0.926</td><td class="num">−0.049</td></tr>
+      <tr><td>Q4</td><td class="num">0.857</td><td class="num">0.955</td><td class="num">−0.097</td></tr>
+      <tr><td>Q5 高用量</td><td class="num">0.707</td><td class="num">0.955</td><td class="num">−0.248</td></tr>
+      <tr><td>daily 缺失</td><td class="num">0.885</td><td class="num">0.934</td><td class="num">−0.048</td></tr>
+    </tbody>
+  </table>
+  <p>最伤的是高用量区：树没能再细分已经成瘾的人群，概率被 TE 先验压在 ~0.9。</p>
+
+  <h3>是否存在过拟合、稀有值问题或 CV leakage？</h3>
+  <ul>
+    <li><strong>过拟合：是。</strong> Train 0.98 vs valid 0.93，best iter 20–31，第 100 轮 valid 更差。</li>
+    <li><strong>稀有值：否。</strong> 编码列的 validation unseen=0；rare 可忽略。</li>
+    <li><strong>CV leakage：否。</strong> map 只来自 train fold；LOO 去掉了自身标签。这是「fold-safe 的查找表仍会被 GBM 贪心用坏」，不是验证集标签漏进训练。</li>
+  </ul>
+
+  <h3>新模型与 <code>lgbm_nocat</code> OOF 的相关性？</h3>
+  <p>Pearson 0.868，Spearman 0.888（HistGB 搭档是 0.992）。更不像、也更弱，不是互补搭档。</p>
+  <p>把 <em>独立计算的</em> fold-safe notif/app TE 拿去和 nocat OOF 做网格融合：单列最优权重全在 nocat=1.00（Δ=0）；两列联合 TE 的 0.95/0.05 融合只有 <strong>+0.000016</strong>。把 nocat+notifTE+appTE 做 5-fold logistic stacking 反而 <strong>−0.0007</strong>。说明身份信息已经在 1700 轮树里，显式 TE 没有新的排序。</p>
+
+  <h3>是否值得进入下一阶段？</h3>
+  <p><strong>不值得。</strong> 不要 5-fold 这份配置，不要继续往 LightGBM 里堆 lookup TE，也不值得为 +0.00002 去养一个 TE 子模型。</p>
+</section>
+
+<section>
+  <h2>5. TE 无效之后查了什么</h2>
+  <p>按计划，若 TE 无效就回头看生成结构和 nocat 残差，而不是强行加 ratio / Optuna / 再 blend 一次 HistGB。</p>
+  <p>Playground 在完整分量上 <code>daily ≥ social+gaming+work</code> 从未违反（0.0%）。候选结构特征相对 <code>y − p_nocat</code> 的相关都 ≈ 0：</p>
+  <table>
+    <thead><tr><th>特征</th><th class="num">单变量 AUC</th><th class="num">corr(resid)</th></tr></thead>
+    <tbody>
+      <tr><td><code>component_sum</code></td><td class="num">0.857</td><td class="num">−0.0006</td></tr>
+      <tr><td><code>other_screen = daily − sum</code></td><td class="num">0.765</td><td class="num">−0.0025</td></tr>
+      <tr><td><code>weekend − daily</code></td><td class="num">0.508</td><td class="num">+0.0014</td></tr>
+      <tr><td>daily 取值频次</td><td class="num">0.569</td><td class="num">+0.0074</td></tr>
+      <tr><td>小数部分 / rounding</td><td class="num">0.501</td><td class="num">~0</td></tr>
+    </tbody>
+  </table>
+  <p><code>lgbm_nocat</code> 的剩余错误集中在约 93,459 行的 hard band（OOF 概率 0.3–0.7）：正类率 50.0%，OOF AUC 只有 0.641。在这个 band 里，<strong>全部 9 个原始数值列的 AUC 都是 ~0.50</strong>。不是缺一个减法特征，更像生成器在中等用量 + 更高缺失率处留下的不可分噪声。</p>
+  <p class="callout next">下一轮<strong>不</strong>再训练「再加一个与生成器有关的列」这类实验：<code>other_screen</code> / 频次 / 小数部分的残差证据已经足够负。当前提交候选仍是 <code>lgbm_nocat</code>（OOF 0.963771）或极小的 <code>blend_nocat</code>（0.963806）。若还要动模型，需要与 lookup/ratio/coverage 不同质的假设，而不是再开一轮同族特征。</p>
+</section>
+
+<section>
+  <h2>复现</h2>
+  <ul>
+    <li>配置：<code>configs/lgbm_nocat_exact_te_v1.yaml</code></li>
+    <li>实现：<code>s6e8/target_encoding.py</code>，在 <code>s6e8/models/train.py</code> 的 fold 循环内调用</li>
+    <li>对照 OOF：Kaggle kernel <a href="https://www.kaggle.com/code/yitiluo/s6e8-lgbm-nocat">yitiluo/s6e8-lgbm-nocat</a></li>
+    <li>日志：<code>experiments/LOG.md</code></li>
+    <li>单测：<code>tests/test_target_encoding.py</code>（LOO、unseen→prior、缺失保持 NaN、行变换不加 TE）</li>
+  </ul>
+</section>
+</main>
+<footer>生成时间 2026-08-18T08:05:00Z。HTML 为单文件自包含。未向 Kaggle 提交。</footer>
+</body>
+</html>

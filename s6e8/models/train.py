@@ -23,6 +23,7 @@ from s6e8.runtime import (
     get_accelerator,
     get_git_commit,
 )
+from s6e8.target_encoding import apply_fold_target_encoding, parse_exact_te_config
 
 BACKEND_ALIASES = {
     "lightgbm": "lightgbm",
@@ -186,6 +187,7 @@ def _run_cv(
     seed = int(config["experiment"]["seed"])
     set_seed(seed)
     X, X_test, y_np, cols, cat_cols = _prepare_xy(train_df, test_df, y, config)
+    te_cfg = parse_exact_te_config(config)
     cv_cfg = config["cv"]
     splitter = StratifiedKFold(
         n_splits=int(cv_cfg["n_splits"]),
@@ -197,22 +199,43 @@ def _run_cv(
     test_pred = np.zeros(len(X_test), dtype=dtype)
     fold_scores: list[float] = []
     best_iterations: list[int] = []
+    te_fold_stats: list[dict[str, Any]] = []
+    feature_importances: list[dict[str, dict[str, float]]] = []
+    feature_names = list(cols)
     ctx = {
         "config": config,
         "cols": cols,
         "cat_cols": cat_cols,
         "seed": seed,
         "accelerator": get_accelerator(config),
+        "feature_importances": feature_importances,
     }
+    te_note = ""
+    if te_cfg is not None:
+        te_note = f" exact_te_cols={te_cfg['columns']}"
     print(
         f"model={config['model']['name']} backend={resolve_backend(config)} "
-        f"accelerator={ctx['accelerator']} n_features={len(cols)}"
+        f"accelerator={ctx['accelerator']} n_raw_features={len(cols)}{te_note}"
     )
 
     for fold, (tr_idx, va_idx) in enumerate(splitter.split(X, y_np), start=1):
         X_tr, X_va = X.iloc[tr_idx], X.iloc[va_idx]
         y_tr, y_va = y_np[tr_idx], y_np[va_idx]
-        va_pred, te_pred, best_iter = fold_fn(X_tr, y_tr, X_va, y_va, X_test, ctx)
+        X_te = X_test
+        if te_cfg is not None:
+            X_tr, X_va, X_te, te_stats = apply_fold_target_encoding(
+                X_tr, y_tr, X_va, X_test, te_cfg
+            )
+            te_fold_stats.append(te_stats)
+            feature_names = list(X_tr.columns)
+            ctx["cols"] = feature_names
+            n_unseen = sum(int(v["n_val_unseen"]) for v in te_stats["columns"].values())
+            n_rare = sum(int(v["n_val_rare"]) for v in te_stats["columns"].values())
+            print(
+                f"[fold {fold}] n_features={len(feature_names)} "
+                f"te_unseen={n_unseen} te_rare={n_rare}"
+            )
+        va_pred, te_pred, best_iter = fold_fn(X_tr, y_tr, X_va, y_va, X_te, ctx)
         oof[va_idx] = va_pred.astype(dtype, copy=False)
         test_pred += te_pred.astype(dtype, copy=False) / splitter.n_splits
         auc = float(roc_auc_score(y_va, va_pred))
@@ -227,7 +250,7 @@ def _run_cv(
     return {
         "oof": oof,
         "test_pred": test_pred,
-        "feature_names": cols,
+        "feature_names": feature_names,
         "fold_scores": fold_scores,
         "best_iterations": best_iterations,
         "cv_mean": cv_mean,
@@ -237,6 +260,9 @@ def _run_cv(
         "test_ids": test_df[config["competition"]["id_col"]].to_numpy(),
         "y": y_np,
         "backend": resolve_backend(config),
+        "te_config": te_cfg,
+        "te_fold_stats": te_fold_stats,
+        "feature_importances": feature_importances,
     }
 
 
@@ -288,6 +314,15 @@ def _fold_lightgbm(X_tr, y_tr, X_va, y_va, X_test, ctx):
     best_iter = int(booster.best_iteration or 0)
     va_pred = booster.predict(X_va, num_iteration=booster.best_iteration)
     te_pred = booster.predict(X_test, num_iteration=booster.best_iteration)
+    names = list(X_tr.columns)
+    gain = booster.feature_importance(importance_type="gain")
+    split = booster.feature_importance(importance_type="split")
+    ctx.setdefault("feature_importances", []).append(
+        {
+            "gain": {n: float(g) for n, g in zip(names, gain)},
+            "split": {n: float(s) for n, s in zip(names, split)},
+        }
+    )
     return va_pred, te_pred, best_iter
 
 
@@ -460,6 +495,17 @@ def _fold_logreg(X_tr, y_tr, X_va, y_va, X_test, ctx):
     return va_pred, te_pred, 0
 
 
+def _mean_feature_importance(
+    fold_importances: list[dict[str, dict[str, float]]],
+) -> dict[str, float]:
+    gains: dict[str, list[float]] = {}
+    for fold in fold_importances:
+        gain = fold.get("gain") or {}
+        for name, value in gain.items():
+            gains.setdefault(name, []).append(float(value))
+    return {name: float(np.mean(vals)) for name, vals in gains.items()}
+
+
 def save_artifacts(
     artifacts: dict[str, Any],
     config: dict[str, Any],
@@ -533,6 +579,15 @@ def save_artifacts(
         "model_name": config["model"]["name"],
         "config_path": config.get("_config_path"),
     }
+    te_cfg = artifacts.get("te_config")
+    if te_cfg:
+        metrics["target_encoding"] = te_cfg
+    te_fold_stats = artifacts.get("te_fold_stats")
+    if te_fold_stats:
+        metrics["te_fold_stats"] = te_fold_stats
+    importance_mean = _mean_feature_importance(artifacts.get("feature_importances") or [])
+    if importance_mean:
+        metrics["feature_importance_gain_mean"] = importance_mean
     metrics_path = oof_dir / "metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     written["metrics"] = _relpath(metrics_path)

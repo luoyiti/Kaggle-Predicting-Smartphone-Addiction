@@ -42,7 +42,7 @@ jobs:
         run: python scripts/validate_configs.py
 
       - name: Import smoke
-        run: python -c "import s6e8, s6e8.data, s6e8.eda, s6e8.eda_report, s6e8.features, s6e8.models.train, s6e8.reports_index, s6e8.runtime"
+        run: python -c "import s6e8, s6e8.data, s6e8.eda, s6e8.eda_report, s6e8.features, s6e8.models.train, s6e8.reports_index, s6e8.runtime, s6e8.target_encoding"
 
       - name: Pytest
         run: python -m pytest -q

@@ -47,7 +47,10 @@ def _row_scaled_reduce(df: pd.DataFrame, cols: list[str], how: str, eps: float) 
 
 
 def add_engineered_features(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
-    """Row-wise transforms only — no target statistics, no fold leakage."""
+    """Row-wise transforms only — no target statistics, no fold leakage.
+
+    Exact-value target encoding is applied inside CV in ``s6e8.target_encoding``.
+    """
     out = df.copy()
     feat_cfg = config["features"]
     eng = feat_cfg.get("engineering", {}) or {}
