@@ -51,7 +51,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--accelerator", choices=["cpu", "gpu"], default=None)
     parser.add_argument("--username", default=os.environ.get("KAGGLE_USERNAME", ""))
     parser.add_argument("--slug", default=os.environ.get("KAGGLE_KERNEL_SLUG", DEFAULT_SLUG))
-    parser.add_argument("--title", default=DEFAULT_TITLE)
+    parser.add_argument(
+        "--title",
+        default=None,
+        help="Kernel title; defaults to a title whose slug matches --slug",
+    )
     parser.add_argument("--git-repo", default=os.environ.get("S6E8_GIT_REPO", ""))
     parser.add_argument("--git-commit", default=os.environ.get("S6E8_GIT_COMMIT") or get_git_commit())
     parser.add_argument("--out", default=".kernel-staging")
@@ -70,6 +74,11 @@ def _git_repo(explicit: str) -> str:
     if gh:
         return f"https://github.com/{gh}.git"
     return "https://github.com/luoyiti/Kaggle-Predicting-Smartphone-Addiction.git"
+
+
+def default_title_for_slug(slug: str) -> str:
+    """Return a readable title that Kaggle resolves back to the same slug."""
+    return " ".join(part.upper() if part == "s6e8" else part.capitalize() for part in slug.split("-"))
 
 
 def build_source_archive(root: Path) -> bytes:
@@ -185,7 +194,7 @@ def main() -> None:
         staging,
         username=args.username.strip(),
         slug=args.slug.strip(),
-        title=args.title,
+        title=args.title or default_title_for_slug(args.slug.strip()),
         accelerator=accelerator,
         enable_internet=enable_internet,
         competition_slug=competition_slug,
