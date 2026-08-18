@@ -11,7 +11,8 @@ are stronger than 80k ranking runs but still **not** official 5-fold scores.
 
 Source: `oof/<name>/metrics.json` from kernels
 [yitiluo/s6e8-lgbm-nocat](https://www.kaggle.com/code/yitiluo/s6e8-lgbm-nocat) and
-[yitiluo/s6e8-histgb-nocat](https://www.kaggle.com/code/yitiluo/s6e8-histgb-nocat).
+[yitiluo/s6e8-histgb-nocat](https://www.kaggle.com/code/yitiluo/s6e8-histgb-nocat), plus
+[yitiluo/s6e8-histgb-nocat-long-v1](https://www.kaggle.com/code/yitiluo/s6e8-histgb-nocat-long-v1).
 Feature set is the 9 numerics including `notifications_per_day` and `app_opens_per_day`.
 The three categoricals are dropped. No coverage features.
 
@@ -20,6 +21,8 @@ The three categoricals are dropped. No coverage features.
 | lgbm_nocat | Drop only the three categoricals | LightGBM, 9 numeric cols, 5-fold | **0.963771** | 0.000593 | 715s | Primary single model. Folds 0.96293–0.96468. Best iter 1549–1912. | Default submit candidate |
 | histgb_nocat | Same cols, second tree family | sklearn HistGB, max_iter=500 | 0.962140 | 0.000458 | 178s | −0.00163 vs LGBM. Kaggle sklearn 1.6.1 has no `X_val`; hit the 500-iter cap on every fold. | Optional: more trees / sklearn≥1.7 later |
 | blend_nocat | Complementary tree errors | Grid 0.85 LGBM + 0.15 HistGB | **0.963806** | — | — | +0.000035 vs LGBM. Pearson 0.992. Tiny, consistent lift. | Prefer this CSV if submitting a blend |
+| histgb_nocat_long_v1 | The 500-tree HistGB is undertrained | Same HistGB with max_iter=1400 only | 0.963468 | 0.000465 | 410s | **+0.001329 vs capped HistGB.** Best iter 1117, 1400, 1226, 1146, 1215. Undertraining confirmed; one fold still capped. | Use as the stronger blend partner |
+| blend_nocat_long_v1 | A stronger HistGB should contribute more complementary ranking | Grid 0.60 LGBM + 0.40 long HistGB | **0.964087** | — | — | **New best: +0.000316 vs LGBM and +0.000281 vs old blend.** Pearson 0.9937. Improved all five folds. | Default submission candidate; no submit yet |
 
 Did **not** submit to the leaderboard. Did **not** add coverage features. Did **not** drop notifications/app_opens.
 
@@ -68,11 +71,13 @@ unseen-value rates are fake. These rows use the **full train**.
 
 - Fold std ≈ 0.0003 on 80k×3 and 0.0006 on full 5-fold. Rankings held: `lgbm_nocat` still beats HistGB; blend still helps, but the full-data lift is much smaller.
 - The TE screen’s −0.040 is ~70× fold std. Not a noisy CV flip. Unseen-value share was 0, so this is overfit of lookup features, not val→train leakage.
+- The new 0.60/0.40 blend improves every fold over `lgbm_nocat` by +0.000224 to +0.000404. Leave-one-fold-out weight selection chose an LGBM weight of 0.55 or 0.60 on all five held-out folds, so 0.60 is not driven by one fold.
 
 **Complementary errors?**
 
 - On 80k diagnostics, LGBM vs HistGB Pearson ≈ 0.99 and grid blend added ~0.0006.
 - On full 5-fold OOF the same pair is Pearson 0.992. Grid 0.85/0.15 adds only **+0.000035**. HistGB is a weaker partner here because it capped at 500 trees on sklearn 1.6.1 without `X_val`.
+- Extending only HistGB's budget to 1400 raises it from 0.962140 to **0.963468**. Its correlation with LGBM is 0.9937, but a 0.60/0.40 grid blend reaches **0.964087**. A 1%-step search peaks at 0.58/0.42 by only +0.00000066, so keep the coarser 0.60/0.40 weights.
 - Do not average in failed ablations (`usage_core`, `lgbm_nocat_exact_te_v1`).
 - Grid-blending `lgbm_nocat` OOF with fold-safe notif/app TE is ≤ **+0.00002**. Logistic stack of nocat+TE **hurts** (−0.0007).
 
@@ -87,8 +92,10 @@ unseen-value rates are fake. These rows use the **full train**.
 1. `configs/lgbm_nocat.yaml` (CPU) — OOF **0.963771**.
 2. `configs/histgb_nocat.yaml` (CPU) — OOF 0.962140.
 3. `python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid --name blend_nocat` — OOF **0.963806**.
+4. `configs/histgb_nocat_long_v1.yaml` (CPU) — OOF 0.963468; +0.001329 vs capped HistGB.
+5. `python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat_long_v1 --method grid --name blend_nocat_long_v1` — OOF **0.964087**, weights 0.60/0.40.
 
-Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submissions/blend_nocat.csv`). Do not `kaggle competitions submit` unless explicitly asked.
+Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submissions/blend_nocat_long_v1.csv`). Do not `kaggle competitions submit` unless explicitly asked.
 
 ## Full-data screens (done, no 5-fold follow-up)
 
@@ -104,4 +111,4 @@ Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submi
 - Fold-safe exact-value target encoding **inside** LightGBM (lookup hijacks early stopping; already in the deep tree).
 - Mean-blending nocat with OOF exact-value TE (≤ +0.00002).
 - `other_screen` / `component_sum` / `weekend − daily` / value-frequency / fractional parts as extra GBM columns (residual vs nocat ≈ 0).
-- Another LGBM+HistGB probability blend pass.
+- Another blend pass with the capped 500-tree HistGB; its longer-trained replacement is strictly better.
