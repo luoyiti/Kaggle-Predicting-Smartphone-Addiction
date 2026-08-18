@@ -80,3 +80,53 @@ def test_smoke_train_on_synthetic_data(tmp_path, baseline_config_path):
     except FileExistsError:
         pass
     assert_oof_available(config, overwrite=True)
+
+
+def test_smoke_histgb_and_logreg_backends(tmp_path, baseline_config_path):
+    train_df, test_df = _synthetic_frames()
+    raw = yaml.safe_load(baseline_config_path.read_text(encoding="utf-8"))
+    raw["paths"]["train"] = str(tmp_path / "train.csv")
+    raw["paths"]["test"] = str(tmp_path / "test.csv")
+    raw["paths"]["sample_submission"] = str(tmp_path / "missing.csv")
+    raw["paths"]["oof_dir"] = str(tmp_path / "oof")
+    raw["paths"]["submission_dir"] = str(tmp_path / "submissions")
+    raw["paths"]["experiments_dir"] = str(tmp_path / "experiments")
+    raw["cv"]["n_splits"] = 2
+    raw["model"]["log_evaluation"] = 0
+    raw["features"]["engineering"] = {
+        "add_n_missing": False,
+        "add_leisure_hours": False,
+        "add_screen_sleep_ratio": False,
+        "add_weekend_weekday_ratio": False,
+        "add_notif_per_open": False,
+    }
+    train_df.to_csv(raw["paths"]["train"], index=False)
+    test_df.to_csv(raw["paths"]["test"], index=False)
+
+    for backend, params in (
+        ("histgb", {"max_iter": 15, "learning_rate": 0.1, "early_stopping": True, "n_iter_no_change": 5}),
+        ("logreg", {"max_iter": 200, "solver": "lbfgs"}),
+    ):
+        raw["experiment"]["name"] = f"synthetic_{backend}"
+        raw["model"]["name"] = backend
+        raw["model"]["params"] = params
+        raw["model"]["num_boost_round"] = 15
+        raw["model"]["early_stopping_rounds"] = 5
+        cfg_path = tmp_path / f"{backend}.yaml"
+        cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+        config = load_config(cfg_path)
+        X_train, y = split_xy(train_df, config)
+        artifacts = train_cv(X_train, test_df, y, config)
+        assert 0.0 <= artifacts["oof_auc"] <= 1.0
+        assert len(artifacts["oof"]) == len(train_df)
+
+
+def test_diagnostic_override_renames_experiment(baseline_config_path):
+    from s6e8.models.train import apply_diagnostic_overrides
+
+    config = load_config(baseline_config_path)
+    apply_diagnostic_overrides(config, max_train_rows=1000, n_splits=3)
+    assert config["experiment"]["name"] == "baseline_diag1000"
+    assert config["experiment"]["diagnostic"] is True
+    assert config["runtime"]["max_train_rows"] == 1000
+    assert config["cv"]["n_splits"] == 3

@@ -115,6 +115,20 @@ Expect:
 - `submissions/baseline.csv`
 - `experiments/baseline.json`
 
+Cheap **ranking** runs (subsample, not a leaderboard/CV claim):
+
+```bash
+python scripts/train.py --config configs/lgbm_raw.yaml --max-train-rows 80000 --n-splits 3
+```
+
+That renames the experiment to `lgbm_raw_diag80000` and skips writing `experiments/*.json`. Record the ranking in `experiments/LOG.md`. Full 5-fold jobs belong on Kaggle Kernels.
+
+Blend saved OOF files after at least two real experiments:
+
+```bash
+python scripts/blend_oof.py --experiments lgbm_raw lgbm_strong3_mean --method grid
+```
+
 ## Cloud workflow (daily loop)
 
 1. Agent adds `configs/xgb_gpu_v2.yaml` (new file, unique `experiment.name`)

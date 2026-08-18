@@ -13,7 +13,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from s6e8.data import load_config, load_test, load_train, split_xy
-from s6e8.models.train import assert_oof_available, save_artifacts, train_cv
+from s6e8.models.train import (
+    apply_diagnostic_overrides,
+    assert_oof_available,
+    save_artifacts,
+    stratified_subsample,
+    train_cv,
+)
 from s6e8.runtime import apply_runtime_override, detect_environment, get_git_commit
 
 
@@ -35,6 +41,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Allow replacing an existing experiment OOF directory",
     )
+    parser.add_argument(
+        "--max-train-rows",
+        type=int,
+        default=None,
+        help="Stratified subsample of train for ranking only. Renames experiment to *_diagN. Not a competition score.",
+    )
+    parser.add_argument(
+        "--n-splits",
+        type=int,
+        default=None,
+        help="Override cv.n_splits (use with --max-train-rows for cheap ranking).",
+    )
     return parser.parse_args()
 
 
@@ -42,6 +60,11 @@ def main() -> None:
     args = parse_args()
     config = load_config(args.config)
     apply_runtime_override(config, accelerator=args.accelerator)
+    apply_diagnostic_overrides(
+        config,
+        max_train_rows=args.max_train_rows,
+        n_splits=args.n_splits,
+    )
 
     print(f"experiment={config['experiment']['name']}")
     print(f"config={config['_config_path']}")
@@ -61,6 +84,15 @@ def main() -> None:
 
     train_df = load_train(config)
     test_df = load_test(config)
+    max_rows = (config.get("runtime") or {}).get("max_train_rows")
+    if max_rows:
+        train_df = stratified_subsample(
+            train_df,
+            config["competition"]["target"],
+            int(max_rows),
+            int(config["experiment"]["seed"]),
+        )
+        print(f"subsampled_train={len(train_df):,} (diagnostic)")
     X_train, y = split_xy(train_df, config)
 
     print(f"train={len(X_train):,} test={len(test_df):,} target={y.name}")

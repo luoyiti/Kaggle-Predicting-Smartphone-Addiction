@@ -13,6 +13,18 @@ def test_baseline_yaml_loads(baseline_config_path):
     assert config["model"]["name"] == "lightgbm"
 
 
+def test_experiment_names_are_unique():
+    from pathlib import Path
+
+    names = []
+    for path in sorted(Path("configs").glob("*.yaml")):
+        config = load_config(path)
+        validate_config(config)
+        names.append(config["experiment"]["name"])
+    assert names
+    assert len(names) == len(set(names))
+
+
 def test_train_help_mentions_config():
     import subprocess
     import sys
@@ -25,3 +37,4 @@ def test_train_help_mentions_config():
     )
     assert "--config" in proc.stdout
     assert "--accelerator" in proc.stdout
+    assert "--max-train-rows" in proc.stdout
