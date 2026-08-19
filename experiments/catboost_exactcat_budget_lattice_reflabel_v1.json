@@ -1,0 +1,19 @@
+{
+  "experiment": "catboost_exactcat_budget_lattice_reflabel_v1",
+  "git_commit": "05a1645cd3df5f7d99c888afa8543558f41e5c95",
+  "config": "/kaggle/working/src/configs/catboost_exactcat_budget_lattice_reflabel_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "catboost_structural_v1",
+  "model_version": "catboost_v1",
+  "accelerator": "gpu",
+  "cv_auc": 0.9679204006169326,
+  "runtime_seconds": 1354.585,
+  "timestamp": "2026-08-19T08:07:29Z",
+  "environment": "kaggle",
+  "hypothesis": "Aggregate source-label summaries add transferable signal to the promoted lattice parent after strict overlap removal.",
+  "change": "Add separately marked label-aware external reference features after exact, budget, and lattice blocks.",
+  "cv_std": 0.0004198847307715475,
+  "diagnostic": false,
+  "backend": "catboost"
+}

@@ -1,0 +1,19 @@
+{
+  "experiment": "lookup_transformer_v1",
+  "git_commit": "3c4ab56fd77e40889f3099c8d65b68ef7e70c8d8",
+  "config": "/kaggle/working/src/configs/lookup_transformer_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "exact_budget_lookup_v1",
+  "model_version": "lookup_transformer_v1",
+  "accelerator": "gpu",
+  "cv_auc": 0.96533865968609,
+  "runtime_seconds": 2210.256,
+  "timestamp": "2026-08-19T09:19:17Z",
+  "environment": "kaggle",
+  "hypothesis": "Exact-value lookup embeddings plus smooth budget tokens can exceed the tree-model structural frontier.",
+  "change": "Add a target-isolated Lookup-Transformer on the exact numeric grid and promoted screen-budget features.",
+  "cv_std": 0.00047783424647719906,
+  "diagnostic": false,
+  "backend": "lookup_transformer"
+}

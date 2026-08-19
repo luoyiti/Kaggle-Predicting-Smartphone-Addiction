@@ -2,7 +2,7 @@
 
 Date: 2026-08-18
 
-Status: approved direction; implementation pending
+Status: completed; formal fixed-five-fold experiments and honest blends recorded
 
 Pull request: #11 (`agent/histgb-nocat-long-v1`)
 

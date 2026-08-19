@@ -24,7 +24,107 @@ The three categoricals are dropped. No coverage features.
 | histgb_nocat_long_v1 | The 500-tree HistGB is undertrained | Same HistGB with max_iter=1400 only | 0.963468 | 0.000465 | 410s | **+0.001329 vs capped HistGB.** Best iter 1117, 1400, 1226, 1146, 1215. Undertraining confirmed; one fold still capped. | Use as the stronger blend partner |
 | blend_nocat_long_v1 | A stronger HistGB should contribute more complementary ranking | Grid 0.60 LGBM + 0.40 long HistGB | **0.964087** | — | — | **New best: +0.000316 vs LGBM and +0.000281 vs old blend.** Pearson 0.9937. Improved all five folds. | Default submission candidate; no submit yet |
 
-Did **not** submit to the leaderboard. Did **not** add coverage features. Did **not** drop notifications/app_opens.
+### Structural CatBoost and reference-feature phase
+
+These are formal fixed 5-fold, seed-42 Kaggle Kernel runs on all 691,369 training
+rows. Every run produced OOF predictions, test predictions, `metrics.json`, and an
+experiment record. Deltas use the controlled parent shown in the table, not the old
+0.964087 blend.
+
+| experiment | controlled change | OOF AUC | delta vs parent | positive folds | fold std | runtime | decision |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| catboost_numeric_v1 | CatBoost control: raw numerics plus original categories | 0.9591265017 | — | — | 0.0005735784 | 278.326s | Control only |
+| catboost_exactcat_v1 | Copy all nine numeric predictors as exact categorical keys for CatBoost ordered CTRs | **0.9669821646** | **+0.007855663** | **5/5** | 0.0004468016 | 1343.714s | Exact-grid hypothesis confirmed and promoted |
+| catboost_exactcat_budget_v1 | Add complete/observed screen-budget, remainder, share, weekend, and awake-time features | **0.9676859764** | **+0.000703812** | **5/5** | 0.0004832405 | 1200.622s | Promoted |
+| catboost_exactcat_budget_noage_v1 | Retain numeric age but remove only `age__exact` | 0.9676986645 | +0.000012688 | 2/5 | 0.0004467960 | 1184.387s | Not promoted; no general per-column sweep |
+| catboost_exactcat_budget_lattice_v1 | Add one bounded decimal-lattice block to the promoted budget parent | 0.9677423390 | +0.000056363 | 4/5 | 0.0004591174 | 1280.456s | Promoted but sub-material; stop decimal expansion |
+| catboost_exactcat_budget_lattice_refdist_v1 | Add leakage-filtered, target-free features from the 7,500-row reference distribution | **0.9678902672** | **+0.000147928** | **5/5** | 0.0004373149 | 1278.582s | Promoted; current target-free tree frontier |
+| catboost_exactcat_budget_lattice_reflabel_v1 | Add separately marked aggregate source-label summaries | 0.9679204006 | +0.000030133 vs refdist | 3/5 | 0.0004198847 | 1354.585s | Not promoted; fails +0.00015 and 4/5 rule; stop label-aware family |
+
+Exact fold AUCs from the formal `metrics.json` artifacts:
+
+| experiment | fold 1 | fold 2 | fold 3 | fold 4 | fold 5 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| catboost_numeric_v1 | 0.9584129698 | 0.9587793685 | 0.9593285484 | 0.9601064735 | 0.9590074832 |
+| catboost_exactcat_v1 | 0.9663599122 | 0.9670490448 | 0.9671520669 | 0.9676811468 | 0.9666836856 |
+| catboost_exactcat_budget_v1 | 0.9669834169 | 0.9678316842 | 0.9678061169 | 0.9684320223 | 0.9673998370 |
+| catboost_exactcat_budget_noage_v1 | 0.9670266102 | 0.9677909171 | 0.9677915537 | 0.9683999294 | 0.9675046352 |
+| catboost_exactcat_budget_lattice_v1 | 0.9670499902 | 0.9679153115 | 0.9677958529 | 0.9684451399 | 0.9675233655 |
+| catboost_exactcat_budget_lattice_refdist_v1 | 0.9672214006 | 0.9680202380 | 0.9679975988 | 0.9685523846 | 0.9676849515 |
+| catboost_exactcat_budget_lattice_reflabel_v1 | 0.9672846952 | 0.9680072303 | 0.9679975752 | 0.9685811980 | 0.9677549971 |
+
+The completed honest leave-one-fold-out blend checkpoint used each held-out fold
+only for evaluation; weights were selected on the other four folds. It reproduced
+the historical LightGBM/long-HistGB level at 0.9640831655, then measured the
+incremental complementarity of the promoted budget CatBoost before the later
+reference runs existed.
+
+| experiment | components | mean weights | honest OOF AUC | delta vs budget CatBoost | conclusion |
+| --- | --- | --- | ---: | ---: | --- |
+| lofo_lgbm_hist_v1 | LGBM + long HistGB | 0.58 / 0.42 | 0.9640831655 | — | Honest reproduction of the previous ~0.964087 blend |
+| lofo_lgbm_budget_v1 | LGBM + budget CatBoost | 0.15 / 0.85 | 0.9678463170 | +0.000160341 | Small complementary lift |
+| lofo_hist_budget_v1 | long HistGB + budget CatBoost | 0.15 / 0.85 | 0.9678480209 | +0.000162045 | Small complementary lift |
+| lofo_lgbm_hist_budget_v1 | LGBM + long HistGB + budget CatBoost | 0.10 / 0.10 / 0.80 | **0.9678609761** | **+0.000175000** | Best checkpoint; same weights in all five held-out folds and positive delta in 5/5 folds |
+
+Budget CatBoost Spearman correlation was 0.97798 with LGBM and 0.97758 with long
+HistGB, versus 0.99510 between the two historical trees. The later target-free
+`refdist` single model (0.9678902672) exceeds this checkpoint, so a final blend is
+reserved until all formal candidates are available rather than reusing these
+intermediate weights.
+
+Reference provenance was validated in the cloud artifact, not inferred from a
+filename: source
+`jayjoshi37/smartphone-usage-and-addiction-prediction`, SHA-256
+`2194ce1946e8559f26780049c8d972857d8378104f2c9ec25ed9ec35409f1074`, 7,500
+raw/unique/retained rows, zero duplicates, and zero exact query overlap. Complete
+source rows violate `daily_screen >= social + gaming + work/study` in **60.6933%**
+of cases versus zero violations in competition data. Therefore source rows are not
+concatenated with competition training data. `refdist` has
+`external_supervision: false`; `reflabel` has `external_supervision: true` and is
+reported separately. No public prediction CSV was used.
+
+The preregistered Lookup implementation gate was **positive**: exact categories were
+strongly stable, budget features materially improved all five folds, and the bounded
+no-age, lattice, and target-free reference candidates each added less than +0.00015
+to the best-so-far target-free tree frontier. Label-aware reference features were
+excluded from this gate.
+
+### Lookup-Transformer v1 and final honest blends
+
+The formal `lookup_transformer_v1` run used fixed 5-fold CV and target-free combined
+train/test predictor preprocessing; every outer fold trained a fresh model using
+only its fold-training labels. It ran with Torch 2.10.0+cu128 for 2210.256s.
+
+| experiment | OOF AUC | fold mean | fold std | fold AUCs | best epochs | conclusion |
+| --- | ---: | ---: | ---: | --- | --- | --- |
+| lookup_transformer_v1 | 0.96533865968609 | 0.9653544349255766 | 0.00047783424647719906 | 0.9647280617 / 0.9653892437 / 0.9654947161 / 0.9661397933 / 0.9650203598 | 12 / 12 / 11 / 11 / 12 | −0.002551607557558233 vs RefDist; fails the +0.00015 solo gate |
+
+The solo model is too weak to replace the best tree. Per the bounded plan, the
+neural family stops at v1: no architecture or hyperparameter sweep. The final blend
+gate is evaluated separately because a weaker model may still contribute
+complementary ranking errors.
+
+All final blends use honest leave-one-fold-out grid selection: each held-out fold is
+evaluated with weights selected on the other four folds. The mean weights below are
+artifact values; the primary and direct candidates chose the same weights in all
+five held-out folds.
+
+| experiment | supervision | mean weights | OOF AUC | fold AUCs | decision |
+| --- | --- | --- | ---: | --- | --- |
+| lofo_refdist_lgbm_hist_v1 | target-free tree control | RefDist 0.85 / LGBM 0.06 / HistGB 0.09 | 0.9679961032991681 | 0.9673144908 / 0.9681140599 / 0.9680934658 / 0.9686903071 / 0.9677880165 | Tree-only control |
+| lofo_refdist_lgbm_hist_lookup_v1 | target-free primary | RefDist 0.65 / LGBM 0.05 / HistGB 0.05 / Lookup 0.25 | **0.9683015509209122** | 0.9676434824 / 0.9684076807 / 0.9684197012 / 0.9689861396 / 0.9680717058 | **New validated target-free OOF frontier** |
+| lofo_refdist_lookup_v1 | target-free direct comparison | RefDist 0.75 / Lookup 0.25 | 0.9682403616175781 | 0.9675882649 / 0.9683522547 / 0.9683602296 / 0.9689045588 / 0.9680228082 | Direct complementary lift |
+| lofo_reflabel_lookup_external_v1 | external supervision | RefLabel 0.75 / Lookup 0.25 | 0.9682632104733901 | 0.9676447599 / 0.9683534847 / 0.9683550961 / 0.9689296228 / 0.9680554146 | Reporting only; excluded from primary gate |
+
+The primary target-free blend adds **+0.0003054476217441149** over the tree control with a
+positive delta in **5/5 folds**, clearing the +0.00010/3-fold blend gate. It also
+adds +0.0004405748114213459 over the earlier honest 0.9678609761094908 blend. Lookup is promoted
+only for this complementary blend contribution, not as a solo model. The externally
+supervised blend adds just +0.000022848855812052093 over the direct target-free RefDist/Lookup
+blend, so RefLabel remains unpromoted and outside the main gate.
+
+Did **not** submit to the leaderboard. Did **not** run a Lookup hyperparameter sweep.
+Did **not** add coverage features. Did **not** drop notifications/app_opens.
 
 ## Full-data screens (691,369 train, fewer folds — not a 5-fold score)
 

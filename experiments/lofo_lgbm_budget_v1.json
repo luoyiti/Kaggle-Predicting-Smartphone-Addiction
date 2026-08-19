@@ -1,0 +1,37 @@
+{
+  "experiment": "lofo_lgbm_budget_v1",
+  "cv_auc": 0.9678463170343536,
+  "method": "lofo_grid",
+  "components": [
+    "lgbm_nocat",
+    "catboost_exactcat_budget_v1"
+  ],
+  "weights": {
+    "lgbm_nocat": 0.15,
+    "catboost_exactcat_budget_v1": 0.85
+  },
+  "fold_weights": [
+    {"fold": 0, "weights": {"lgbm_nocat": 0.15, "catboost_exactcat_budget_v1": 0.85}},
+    {"fold": 1, "weights": {"lgbm_nocat": 0.15, "catboost_exactcat_budget_v1": 0.85}},
+    {"fold": 2, "weights": {"lgbm_nocat": 0.15, "catboost_exactcat_budget_v1": 0.85}},
+    {"fold": 3, "weights": {"lgbm_nocat": 0.15, "catboost_exactcat_budget_v1": 0.85}},
+    {"fold": 4, "weights": {"lgbm_nocat": 0.15, "catboost_exactcat_budget_v1": 0.85}}
+  ],
+  "fold_auc": {
+    "0": 0.967132570051177,
+    "1": 0.9679699241201196,
+    "2": 0.9679714621682883,
+    "3": 0.9686265813788765,
+    "4": 0.9675472179118756
+  },
+  "component_auc": {
+    "lgbm_nocat": 0.9637713704727537,
+    "catboost_exactcat_budget_v1": 0.9676859763986327
+  },
+  "in_sample_weight_search": false,
+  "lofo_selection": true,
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "lofo_grid blend of lgbm_nocat, catboost_exactcat_budget_v1"
+}
