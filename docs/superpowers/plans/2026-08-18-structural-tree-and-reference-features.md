@@ -1062,7 +1062,7 @@ Push with the GitHub connector when local HTTPS credentials are unavailable. Ver
 - Create after successful runs: `experiments/catboost_numeric_v1.json`
 - Create after successful runs: `experiments/catboost_exactcat_v1.json`
 - Create after successful runs: `experiments/catboost_exactcat_budget_v1.json`
-- Create conditionally after successful runs: lattice and reference experiment JSON files.
+- Create conditionally after successful runs: no-age, lattice, and reference experiment JSON files.
 - Modify after successful runs: `experiments/LOG.md`
 - Modify after successful runs: `README.md`
 - Modify: PR #11 title/body through the GitHub connector.
@@ -1102,11 +1102,11 @@ Promote an experiment when overall OOF improves without depending on a single ex
 
 - [ ] **Step 5: Run the lattice ablation only after budget validation**
 
-Dispatch `catboost_exactcat_budget_lattice_v1`. If its OOF and honest blend both fail to improve the budget parent, stop the lattice family and do not add more decimal digits.
+First run exactly one targeted no-age child of the promoted exact/budget frontier: retain numeric `age`, remove only `age__exact`, and do not start a general backward-selection sweep. Then dispatch the isolated lattice child of whichever internal parent is promoted. If its OOF and honest blend both fail to improve that parent, stop the lattice family and do not add more decimal digits.
 
 - [ ] **Step 6: Run target-free reference distribution**
 
-Dispatch `catboost_exactcat_budget_refdist_v1`. Verify provenance reports source SHA-256, raw/duplicate/overlap/retained counts, source URL, and `external_supervision: false`.
+Dispatch a target-free reference-distribution child of the promoted internal parent. Verify provenance reports source SHA-256, raw/unique/duplicate/overlap/retained counts, source URL, and `external_supervision: false`.
 
 - [ ] **Step 7: Gate the label-aware reference run**
 
@@ -1118,7 +1118,7 @@ For each successful formal run, copy the compact experiment summary into `experi
 
 - [ ] **Step 9: Decide the Lookup-Transformer gate**
 
-Trigger the conditional Lookup plan when two successive tree ablations improve by less than `0.00015` while exact-grid/budget signals remain useful, or when the best new tree is complementary enough to improve an honest blend despite a weaker single AUC. Record `lookup_transformer_decision`, evidence, and selected parent feature set in the experiment log.
+Trigger the conditional Lookup plan when exact-grid signal is stable and two successive successful target-free tree candidates improve the best-so-far frontier by less than `0.00015`, or when a weaker tree improves honest LOFO by at least `0.00010` with at least three positive folds. Do not count label-aware source features toward the tree frontier. Record `lookup_transformer_decision`, evidence, and selected parent feature set in the experiment log.
 
 - [ ] **Step 10: Update documentation and PR**
 
