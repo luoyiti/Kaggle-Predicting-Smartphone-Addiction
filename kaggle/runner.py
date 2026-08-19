@@ -192,6 +192,8 @@ def optional_requirements(config: dict[str, Any]) -> list[tuple[str, str]]:
     backend = str(config["model"]["name"]).lower()
     if backend in {"catboost", "cat", "cb"}:
         return [("catboost", "catboost>=1.2.8,<2")]
+    if backend in {"lookup_transformer", "lookup"}:
+        return [("torch", "torch>=2.2,<3")]
     return []
 
 
