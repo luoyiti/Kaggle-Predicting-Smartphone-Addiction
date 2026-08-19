@@ -6,12 +6,12 @@ on:
       - ".github/workflows/kaggle-formal-temporary.yml"
 
 concurrency:
-  group: kaggle-formal-s6e8-catboost-exactcat-budget-v1
+  group: kaggle-formal-s6e8-catboost-exactcat-budget-noage-v1
   cancel-in-progress: false
 
 jobs:
   train:
-    name: catboost_exactcat_budget_v1
+    name: catboost_exactcat_budget_noage_v1
     runs-on: ubuntu-latest
     timeout-minutes: 330
     permissions:
@@ -22,9 +22,9 @@ jobs:
       KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
       S6E8_GIT_COMMIT: ${{ github.sha }}
       S6E8_GIT_REPO: https://github.com/${{ github.repository }}.git
-      INPUT_CONFIG: configs/catboost_exactcat_budget_v1.yaml
+      INPUT_CONFIG: configs/catboost_exactcat_budget_noage_v1.yaml
       INPUT_ACCELERATOR: gpu
-      INPUT_KERNEL_SLUG: s6e8-catboost-exactcat-budget-v1
+      INPUT_KERNEL_SLUG: s6e8-catboost-exactcat-budget-noage-v1
       INPUT_GPU_SHAPE: NvidiaTeslaT4
     steps:
       - name: Checkout
@@ -84,7 +84,7 @@ jobs:
 
       - name: Validate formal artifacts
         env:
-          EXPERIMENT: catboost_exactcat_budget_v1
+          EXPERIMENT: catboost_exactcat_budget_noage_v1
         run: |
           python - <<'PY'
           import json
@@ -132,7 +132,7 @@ jobs:
         if: always() && steps.download.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: kaggle-formal-catboost_exactcat_budget_v1-${{ github.run_id }}
+          name: kaggle-formal-catboost_exactcat_budget_noage_v1-${{ github.run_id }}
           path: artifacts/kaggle-output
           if-no-files-found: error
 
