@@ -1,0 +1,107 @@
+name: Kaggle Formal Temporary
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/kaggle-formal-temporary.yml"
+
+concurrency:
+  group: kaggle-formal-s6e8-catboost-numeric-v1
+  cancel-in-progress: false
+
+jobs:
+  train:
+    name: catboost_numeric_v1
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: read
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      S6E8_GIT_COMMIT: ${{ github.sha }}
+      S6E8_GIT_REPO: https://github.com/${{ github.repository }}.git
+      INPUT_CONFIG: configs/catboost_numeric_v1.yaml
+      INPUT_ACCELERATOR: gpu
+      INPUT_KERNEL_SLUG: s6e8-catboost-numeric-v1
+      INPUT_GPU_SHAPE: NvidiaTeslaT4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install orchestration dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "kaggle>=1.8" pyyaml pandas numpy pyarrow scikit-learn lightgbm
+
+      - name: Configure Kaggle credentials
+        id: auth
+        run: python scripts/setup_kaggle_auth.py
+
+      - name: Prepare Kaggle kernel
+        id: prepare
+        env:
+          KAGGLE_USERNAME: ${{ steps.auth.outputs.kaggle_username }}
+        run: |
+          python scripts/prepare_kaggle_kernel.py \
+            --config "$INPUT_CONFIG" \
+            --accelerator "$INPUT_ACCELERATOR" \
+            --username "${{ steps.auth.outputs.kaggle_username }}" \
+            --slug "$INPUT_KERNEL_SLUG" \
+            --git-commit "$S6E8_GIT_COMMIT" \
+            --git-repo "$S6E8_GIT_REPO" \
+            --gpu-machine-shape "$INPUT_GPU_SHAPE"
+
+      - name: Push kernel to Kaggle
+        id: push
+        working-directory: .kernel-staging
+        run: kaggle kernels push -p . --accelerator "$INPUT_GPU_SHAPE"
+
+      - name: Wait for kernel
+        id: wait
+        run: |
+          python scripts/wait_kaggle_kernel.py \
+            "${{ steps.prepare.outputs.kernel_id }}" \
+            --interval 30 \
+            --timeout 14400
+
+      - name: Download kernel output
+        id: download
+        if: always() && steps.push.outcome == 'success'
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/kaggle-output
+          kaggle kernels output \
+            "${{ steps.prepare.outputs.kernel_id }}" \
+            -p artifacts/kaggle-output
+          find artifacts/kaggle-output -type f | sort
+
+      - name: Write job summary
+        if: always() && steps.prepare.outcome == 'success'
+        run: |
+          STATUS=error
+          if [ "${{ steps.wait.outcome }}" = "success" ]; then STATUS=complete; fi
+          python scripts/write_gha_summary.py \
+            --output-dir artifacts/kaggle-output \
+            --config "$INPUT_CONFIG" \
+            --accelerator "$INPUT_ACCELERATOR" \
+            --kernel-id "${{ steps.prepare.outputs.kernel_id }}" \
+            --status "$STATUS"
+
+      - name: Upload artifacts
+        if: always() && steps.download.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaggle-formal-catboost_numeric_v1-${{ github.run_id }}
+          path: artifacts/kaggle-output
+          if-no-files-found: error
+
+      - name: Fail if kernel did not complete
+        if: always() && steps.push.outcome == 'success' && steps.wait.outcome != 'success'
+        run: exit 1
