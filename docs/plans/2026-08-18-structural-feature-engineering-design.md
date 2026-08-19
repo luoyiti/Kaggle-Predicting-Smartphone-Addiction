@@ -202,10 +202,17 @@ Formal experiments run in this order:
    numeric copies or budget features;
 2. `catboost_exactcat_v1` — add exact categorical copies only;
 3. `catboost_exactcat_budget_v1` — add the structural budget block;
-4. `catboost_exactcat_budget_lattice_v1` — isolated first-decimal ablation;
-5. `catboost_exactcat_budget_refdist_v1` — target-free source reference;
-6. `catboost_exactcat_budget_reflabel_v1` — separately marked external
+4. `catboost_exactcat_budget_noage_v1` — one preregistered targeted ablation
+   that retains numeric age but excludes only `age__exact`, motivated by the
+   public negative age-category ablation;
+5. an isolated first-decimal lattice child of the promoted internal parent;
+6. a target-free source-reference child of the promoted internal parent;
+7. a separately marked label-aware source-reference child — external
    supervision, only if distribution mode is sound.
+
+No other per-column backward selection is performed. If the no-age child is
+promoted, downstream lattice/reference configs must inherit it; otherwise the
+pre-existing `catboost_exactcat_budget_*` children remain the controlled path.
 
 Each stage reports:
 
@@ -224,11 +231,12 @@ test prediction.
 
 ## Lookup-Transformer phase gate
 
-Lookup-Transformer implementation begins only after the CatBoost and reference
-ablations finish. It is triggered when structural features remain useful but two
-successive tree ablations each improve by less than roughly `0.00015`, or when a
-tree model is slightly weaker alone but its residuals show material complementary
-structure.
+Lookup-Transformer implementation begins only after the CatBoost and target-free
+reference ablations finish. It is triggered when exact-grid signal is established
+and two successive successful target-free tree candidates improve the best-so-far
+frontier by less than `0.00015`, or when a slightly weaker tree improves honest
+LOFO by at least `0.00010` with at least three positive folds. Label-aware source
+features do not count toward this tree frontier.
 
 The implementation will use the same five outer folds and expose exact lookup
 embeddings, smooth periodic numeric embeddings, budget tokens, random feature
