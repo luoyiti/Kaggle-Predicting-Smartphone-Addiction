@@ -1,0 +1,37 @@
+{
+  "experiment": "lofo_refdist_lookup_v1",
+  "cv_auc": 0.9682403616175781,
+  "method": "lofo_grid",
+  "components": [
+    "catboost_exactcat_budget_lattice_refdist_v1",
+    "lookup_transformer_v1"
+  ],
+  "weights": {
+    "catboost_exactcat_budget_lattice_refdist_v1": 0.75,
+    "lookup_transformer_v1": 0.25
+  },
+  "fold_weights": [
+    {"fold": 0, "weights": {"catboost_exactcat_budget_lattice_refdist_v1": 0.75, "lookup_transformer_v1": 0.25}},
+    {"fold": 1, "weights": {"catboost_exactcat_budget_lattice_refdist_v1": 0.75, "lookup_transformer_v1": 0.25}},
+    {"fold": 2, "weights": {"catboost_exactcat_budget_lattice_refdist_v1": 0.75, "lookup_transformer_v1": 0.25}},
+    {"fold": 3, "weights": {"catboost_exactcat_budget_lattice_refdist_v1": 0.75, "lookup_transformer_v1": 0.25}},
+    {"fold": 4, "weights": {"catboost_exactcat_budget_lattice_refdist_v1": 0.75, "lookup_transformer_v1": 0.25}}
+  ],
+  "fold_auc": {
+    "0": 0.9675882649010299,
+    "1": 0.9683522546812504,
+    "2": 0.9683602295954767,
+    "3": 0.9689045588477165,
+    "4": 0.9680228082111519
+  },
+  "component_auc": {
+    "catboost_exactcat_budget_lattice_refdist_v1": 0.9678902672436482,
+    "lookup_transformer_v1": 0.96533865968609
+  },
+  "in_sample_weight_search": false,
+  "lofo_selection": true,
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "lofo_grid blend of catboost_exactcat_budget_lattice_refdist_v1, lookup_transformer_v1"
+}

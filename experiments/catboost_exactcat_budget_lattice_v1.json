@@ -1,0 +1,19 @@
+{
+  "experiment": "catboost_exactcat_budget_lattice_v1",
+  "git_commit": "2b1a6ebcbdd1540572f123a6e476c2e7d7c11b4b",
+  "config": "/kaggle/working/src/configs/catboost_exactcat_budget_lattice_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "catboost_structural_v1",
+  "model_version": "catboost_v1",
+  "accelerator": "gpu",
+  "cv_auc": 0.9677423390320893,
+  "runtime_seconds": 1280.456,
+  "timestamp": "2026-08-19T07:14:32Z",
+  "environment": "kaggle",
+  "hypothesis": "Decimal-lattice features add a final representation-level structural block.",
+  "change": "Enable decimal-lattice features alongside exact copies and screen-budget features.",
+  "cv_std": 0.0004591174353740188,
+  "diagnostic": false,
+  "backend": "catboost"
+}

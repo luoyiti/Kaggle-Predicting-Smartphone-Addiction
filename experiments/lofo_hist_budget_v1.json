@@ -1,0 +1,37 @@
+{
+  "experiment": "lofo_hist_budget_v1",
+  "cv_auc": 0.9678480209171219,
+  "method": "lofo_grid",
+  "components": [
+    "histgb_nocat_long_v1",
+    "catboost_exactcat_budget_v1"
+  ],
+  "weights": {
+    "histgb_nocat_long_v1": 0.15,
+    "catboost_exactcat_budget_v1": 0.85
+  },
+  "fold_weights": [
+    {"fold": 0, "weights": {"histgb_nocat_long_v1": 0.15, "catboost_exactcat_budget_v1": 0.85}},
+    {"fold": 1, "weights": {"histgb_nocat_long_v1": 0.15, "catboost_exactcat_budget_v1": 0.85}},
+    {"fold": 2, "weights": {"histgb_nocat_long_v1": 0.15, "catboost_exactcat_budget_v1": 0.85}},
+    {"fold": 3, "weights": {"histgb_nocat_long_v1": 0.15, "catboost_exactcat_budget_v1": 0.85}},
+    {"fold": 4, "weights": {"histgb_nocat_long_v1": 0.15, "catboost_exactcat_budget_v1": 0.85}}
+  ],
+  "fold_auc": {
+    "0": 0.9671608057434493,
+    "1": 0.9679717072614145,
+    "2": 0.9679535536245829,
+    "3": 0.9686083531484846,
+    "4": 0.9675624199299424
+  },
+  "component_auc": {
+    "histgb_nocat_long_v1": 0.9634682524075684,
+    "catboost_exactcat_budget_v1": 0.9676859763986327
+  },
+  "in_sample_weight_search": false,
+  "lofo_selection": true,
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "lofo_grid blend of histgb_nocat_long_v1, catboost_exactcat_budget_v1"
+}

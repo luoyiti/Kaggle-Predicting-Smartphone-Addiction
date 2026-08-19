@@ -1,0 +1,19 @@
+{
+  "experiment": "catboost_exactcat_budget_noage_v1",
+  "git_commit": "14ce5abf99faee08ddec6a8947b93134803823ab",
+  "config": "/kaggle/working/src/configs/catboost_exactcat_budget_noage_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "catboost_structural_v1",
+  "model_version": "catboost_v1",
+  "accelerator": "gpu",
+  "cv_auc": 0.9676986645353634,
+  "runtime_seconds": 1184.387,
+  "timestamp": "2026-08-19T06:49:52Z",
+  "environment": "kaggle",
+  "hypothesis": "Removing the weak age lookup key improves the promoted exact-category and screen-budget parent.",
+  "change": "Retain numeric age while excluding only age from the exact categorical copies.",
+  "cv_std": 0.0004467959572699581,
+  "diagnostic": false,
+  "backend": "catboost"
+}

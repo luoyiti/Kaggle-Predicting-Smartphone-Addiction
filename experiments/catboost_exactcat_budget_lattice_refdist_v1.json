@@ -1,0 +1,19 @@
+{
+  "experiment": "catboost_exactcat_budget_lattice_refdist_v1",
+  "git_commit": "cf627547e14be9371515fcc038ba1fe1368ec09a",
+  "config": "/kaggle/working/src/configs/catboost_exactcat_budget_lattice_refdist_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "catboost_structural_v1",
+  "model_version": "catboost_v1",
+  "accelerator": "gpu",
+  "cv_auc": 0.9678902672436482,
+  "runtime_seconds": 1278.582,
+  "timestamp": "2026-08-19T07:41:41Z",
+  "environment": "kaggle",
+  "hypothesis": "External source distributions add target-free scale context to the promoted lattice parent.",
+  "change": "Add leakage-filtered target-free external reference features after exact, budget, and lattice blocks.",
+  "cv_std": 0.0004373149185128551,
+  "diagnostic": false,
+  "backend": "catboost"
+}

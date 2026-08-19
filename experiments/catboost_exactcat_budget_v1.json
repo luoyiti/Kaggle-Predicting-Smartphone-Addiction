@@ -1,0 +1,19 @@
+{
+  "experiment": "catboost_exactcat_budget_v1",
+  "git_commit": "d3af906458bd4eda36d93cbd0dd1b1f09c1808b6",
+  "config": "/kaggle/working/src/configs/catboost_exactcat_budget_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "catboost_structural_v1",
+  "model_version": "catboost_v1",
+  "accelerator": "gpu",
+  "cv_auc": 0.9676859763986327,
+  "runtime_seconds": 1200.622,
+  "timestamp": "2026-08-19T06:24:10Z",
+  "environment": "kaggle",
+  "hypothesis": "Screen-budget consistency features add structural signal beyond exact value categories.",
+  "change": "Enable the screen-budget feature block in addition to exact categorical copies.",
+  "cv_std": 0.00048324052117490663,
+  "diagnostic": false,
+  "backend": "catboost"
+}

@@ -124,10 +124,44 @@ python scripts/train.py --config configs/lgbm_nocat.yaml --max-train-rows 80000 
 
 That renames the experiment to `lgbm_nocat_diag80000` and skips writing `experiments/*.json`. Record the ranking in `experiments/LOG.md`. Full 5-fold jobs belong on Kaggle Kernels.
 
-Current best single-model YAML (from 80k diagnostics, not a full-data score): `configs/lgbm_nocat.yaml`. Blend partner: `configs/histgb_nocat.yaml`.
+The completed structural-tree phase moved the validated target-free 5-fold frontier
+from the previous 0.60/0.40 LightGBM/HistGB blend (OOF AUC 0.964087) to
+`configs/catboost_exactcat_budget_lattice_refdist_v1.yaml` (OOF AUC
+**0.9678902672**). The main attributable steps were exact numeric values copied as
+CatBoost categories (+0.007855663 over the numeric CatBoost control, 5/5 folds) and
+screen-budget constraints (+0.000703812, 5/5 folds). The target-free 7,500-row
+reference-distribution block added a further +0.000147928 in all five folds.
+
+The separately marked label-aware reference run reached 0.9679204006, but added only
++0.000030133 over the target-free reference model in 3/5 folds and did not satisfy
+its stricter preregistered promotion rule. It is not the default frontier.
+
+The fixed-5-fold Lookup-Transformer v1 reached 0.9653386597 versus RefDist's
+0.9678902672 (delta -0.0025516076) and fails its solo promotion gate. The neural family
+therefore stops at v1 without a hyperparameter sweep. Its errors are complementary,
+however: honest leave-one-fold-out weight selection produced a target-free tree
+control of 0.9679961033, then reached **0.9683015509** with
+RefDist/LGBM/HistGB/Lookup weights 0.65/0.05/0.05/0.25. This is +0.0003054476 over
+the tree control in all five folds and +0.0004405748 over the earlier honest blend,
+so Lookup is promoted only as a blend component. This four-model result is the new
+validated target-free OOF frontier.
+
+The direct RefDist/Lookup blend reached 0.9682403616. Replacing RefDist with the
+externally supervised RefLabel model reached 0.9682632105, only +0.0000228489 over
+the direct target-free comparison. RefLabel remains excluded from the primary gate
+and is not promoted.
+
+The original source is used only to derive reference features: it is never appended
+to competition training rows. Its complete rows violate the screen-budget relation
+in 60.6933% of cases, while competition data has no such violations. No public
+prediction CSV is consumed, and no leaderboard submission has been made. See
+`experiments/LOG.md` for per-fold results, provenance, and promotion decisions.
 
 ```bash
-python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid
+python scripts/blend_oof.py \
+  --experiments lgbm_nocat histgb_nocat_long_v1 \
+  --method grid \
+  --name blend_nocat_long_v1
 ```
 
 ## Cloud workflow (daily loop)
@@ -138,8 +172,10 @@ python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid
 4. Inputs:
    - `config`: `configs/xgb_gpu_v2.yaml`
    - `accelerator`: `gpu` (or `cpu`)
-   - `submit_to_kaggle`: leave **false** unless you really want a leaderboard submission
-5. Actions packages the repo, `kaggle kernels push`, waits, downloads outputs
+   - `kernel_slug`: optional isolated kernel slug (default `s6e8-cloud-train`)
+   - `gpu_machine_shape`: GPU shape when `accelerator=gpu` (default `NvidiaTeslaT4`)
+5. Actions packages the repo, runs the Kaggle Kernel, and downloads outputs. It keeps
+   `submission.csv` in the workflow artifact and never submits it to the leaderboard.
 6. Open the workflow **Summary** for OOF ROC-AUC / runtime
 7. Download the workflow artifact for OOF / test prediction / `submission.csv`
 
@@ -197,4 +233,4 @@ Numeric (many contain NaNs): `age`, `daily_screen_time_hours`, `social_media_hou
 
 Categorical: `gender` (Male / Female / Other), `stress_level` (Low / Medium / High), `academic_work_impact` (Yes / No).
 
-Missingness is widespread (including categoricals). Positive class is roughly 43%. Trees handle NaNs natively; baseline also adds `n_missing` and a few usage ratios.
+Missingness is widespread (including categoricals). Positive class is roughly 71%. Trees handle NaNs natively; baseline also adds `n_missing` and a few usage ratios.

@@ -1,0 +1,19 @@
+{
+  "experiment": "catboost_exactcat_v1",
+  "git_commit": "95155397eaa0f5c6a30340de2438312e0790179e",
+  "config": "/kaggle/working/src/configs/catboost_exactcat_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "catboost_structural_v1",
+  "model_version": "catboost_v1",
+  "accelerator": "gpu",
+  "cv_auc": 0.9669821646189468,
+  "runtime_seconds": 1343.714,
+  "timestamp": "2026-08-19T06:00:39Z",
+  "environment": "kaggle",
+  "hypothesis": "Exact-value copies let CatBoost learn native CTRs over numeric value categories.",
+  "change": "Enable exact categorical copies for every raw numeric predictor.",
+  "cv_std": 0.00044680162020392054,
+  "diagnostic": false,
+  "backend": "catboost"
+}

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import os
+import platform
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from s6e8 import __version__ as package_version
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,6 +22,55 @@ def _resolve_path(path_like: str | Path) -> Path:
     return PROJECT_ROOT / path
 
 VALID_ACCELERATORS = ("cpu", "gpu")
+FORMAL_PROTOCOL = "fixed5_seed42_v1"
+
+_CORE_DISTRIBUTIONS = (
+    ("numpy", "numpy"),
+    ("pandas", "pandas"),
+    ("scikit-learn", "scikit-learn"),
+    ("pyarrow", "pyarrow"),
+    ("lightgbm", "lightgbm"),
+)
+_BACKEND_DISTRIBUTIONS = {
+    "lightgbm": "lightgbm",
+    "lgbm": "lightgbm",
+    "lgb": "lightgbm",
+    "catboost": "catboost",
+    "cat": "catboost",
+    "cb": "catboost",
+    "xgboost": "xgboost",
+    "xgb": "xgboost",
+    "histgb": "scikit-learn",
+    "histgradientboosting": "scikit-learn",
+    "sklearn_histgb": "scikit-learn",
+    "logreg": "scikit-learn",
+    "logistic": "scikit-learn",
+    "logisticregression": "scikit-learn",
+    "lookup_transformer": "torch",
+    "lookup": "torch",
+}
+
+
+def _installed_distribution_version(distribution: str) -> str | None:
+    """Read installed package metadata without importing optional backends."""
+    try:
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def dependency_versions(model_name: str) -> dict[str, str | None]:
+    """Return deterministic core and selected-backend dependency provenance."""
+    versions: dict[str, str | None] = {"python": platform.python_version()}
+    for key, distribution in _CORE_DISTRIBUTIONS:
+        versions[key] = _installed_distribution_version(distribution)
+    versions["s6e8"] = _installed_distribution_version("s6e8") or package_version
+
+    backend = str(model_name).strip().lower()
+    distribution = _BACKEND_DISTRIBUTIONS.get(backend, backend)
+    if distribution and distribution not in versions:
+        versions[distribution] = _installed_distribution_version(distribution)
+    return versions
 
 REQUIRED_CONFIG_KEYS = (
     ("experiment", "name"),
@@ -48,6 +101,36 @@ def _nested_get(config: dict[str, Any], *keys: str) -> Any:
     return cur
 
 
+def _validate_formal_protocol(config: dict[str, Any]) -> None:
+    experiment = config["experiment"]
+    if not bool(experiment.get("formal", False)):
+        return
+    protocol = experiment.get("validation_protocol")
+    expected = {
+        "protocol": FORMAL_PROTOCOL,
+        "seed": 42,
+        "type": "stratified",
+        "n_splits": 5,
+        "shuffle": True,
+    }
+    actual = {
+        "protocol": protocol,
+        "seed": int(experiment["seed"]),
+        "type": str(config["cv"].get("type", "")),
+        "n_splits": int(config["cv"]["n_splits"]),
+        "shuffle": bool(config["cv"].get("shuffle", False)),
+    }
+    if actual != expected:
+        raise ValueError(f"Formal protocol {FORMAL_PROTOCOL} required; got {actual}")
+
+    output = config.get("output") or {}
+    if output.get("save_oof") is not True or output.get("save_test") is not True:
+        raise ValueError(
+            "Formal output requirements: output.save_oof and output.save_test "
+            "must both be true"
+        )
+
+
 def validate_config(config: dict[str, Any]) -> None:
     missing: list[str] = []
     for keys in REQUIRED_CONFIG_KEYS:
@@ -69,6 +152,8 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError(
             f"runtime.accelerator must be one of {VALID_ACCELERATORS}, got {accelerator!r}"
         )
+
+    _validate_formal_protocol(config)
 
 
 def detect_environment() -> str:
@@ -235,7 +320,7 @@ def experiment_summary(
         "environment": detect_environment(),
     }
     exp = config.get("experiment") or {}
-    for key in ("hypothesis", "change", "diagnostic"):
+    for key in ("hypothesis", "change", "diagnostic", "source_formal"):
         if key in exp and exp[key] is not None:
             payload[key] = exp[key]
     if extra:

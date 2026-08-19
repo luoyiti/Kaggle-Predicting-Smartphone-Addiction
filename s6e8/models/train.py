@@ -8,7 +8,6 @@ import random
 from pathlib import Path
 from typing import Any, Callable
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
@@ -16,9 +15,11 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 
 from s6e8 import __version__ as package_version
 from s6e8.data import PROJECT_ROOT, load_sample_submission, resolve_path
-from s6e8.features import feature_columns, transform
+from s6e8.features import categorical_feature_columns, feature_columns, transform
+from s6e8.reference_features import apply_external_reference_features
 from s6e8.runtime import (
     apply_model_device,
+    dependency_versions,
     experiment_summary,
     get_accelerator,
     get_git_commit,
@@ -40,6 +41,8 @@ BACKEND_ALIASES = {
     "logreg": "logreg",
     "logistic": "logreg",
     "logisticregression": "logreg",
+    "lookup_transformer": "lookup_transformer",
+    "lookup": "lookup_transformer",
 }
 
 
@@ -139,6 +142,9 @@ def apply_diagnostic_overrides(
         diagnostic = True
 
     if diagnostic:
+        if bool(experiment.get("formal", False)):
+            experiment["source_formal"] = True
+            experiment["formal"] = False
         experiment["diagnostic"] = True
         name = str(experiment["name"])
         rows = runtime.get("max_train_rows")
@@ -169,12 +175,283 @@ def _prepare_xy(
     test_df: pd.DataFrame,
     y: pd.Series,
     config: dict[str, Any],
-) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, list[str], list[str]]:
+) -> tuple[
+    pd.DataFrame, pd.DataFrame, np.ndarray, list[str], list[str], dict[str, Any]
+]:
     train_feat = transform(train_df, config)
     test_feat = transform(test_df, config)
+    train_feat, test_feat, data_provenance = apply_external_reference_features(
+        train_feat, test_feat, config
+    )
+    if list(train_feat.columns) != list(test_feat.columns):
+        raise ValueError("Train and test feature schemas must match before selection")
     cols = feature_columns(train_feat, config)
-    cat_cols = [c for c in config["features"]["categorical"] if c in cols]
-    return train_feat[cols], test_feat[cols], y.to_numpy(), cols, cat_cols
+    cat_cols = [
+        c for c in categorical_feature_columns(train_feat, config) if c in cols
+    ]
+    return train_feat[cols], test_feat[cols], y.to_numpy(), cols, cat_cols, data_provenance
+
+
+def _assert_target_free_provenance(
+    value: Any,
+    *,
+    path: tuple[str, ...] = ("preprocessing_provenance",),
+) -> None:
+    """Reject target-related keys anywhere in predictor preprocessing metadata."""
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            key_text = str(key)
+            lowered = key_text.casefold()
+            if "target" in lowered or "label" in lowered:
+                location = ".".join((*path, key_text))
+                raise ValueError(
+                    "Lookup preprocessing provenance must be target-free; "
+                    f"forbidden key at {location}"
+                )
+            _assert_target_free_provenance(
+                nested,
+                path=(*path, key_text),
+            )
+    elif isinstance(value, (list, tuple)):
+        for index, nested in enumerate(value):
+            _assert_target_free_provenance(
+                nested,
+                path=(*path, str(index)),
+            )
+    elif isinstance(value, str):
+        lowered = value.casefold()
+        if "target" in lowered or "label" in lowered:
+            location = ".".join(path)
+            raise ValueError(
+                "Lookup preprocessing provenance must be target-free; "
+                f"forbidden string value at {location}"
+            )
+
+
+def _lookup_model_columns(
+    train_feat: pd.DataFrame,
+    test_feat: pd.DataFrame,
+    config: dict[str, Any],
+) -> tuple[list[str], list[str], dict[str, int]]:
+    """Validate and resolve the explicitly configured Lookup token schema."""
+    model_cfg = config["model"]
+
+    def column_list(key: str) -> list[str]:
+        raw = model_cfg.get(key)
+        if not isinstance(raw, list) or not raw:
+            raise ValueError(f"model.{key} must be a non-empty list")
+        if any(not isinstance(column, str) or not column for column in raw):
+            raise ValueError(f"model.{key} must contain non-empty strings")
+        columns = list(raw)
+        if len(columns) != len(set(columns)):
+            raise ValueError(f"model.{key} must not contain duplicate columns")
+        return columns
+
+    lookup_columns = column_list("lookup_columns")
+    numeric_columns = column_list("numeric_token_columns")
+    if numeric_columns[: len(lookup_columns)] != lookup_columns:
+        raise ValueError(
+            "model.numeric_token_columns must start with model.lookup_columns "
+            "in identical order"
+        )
+
+    restricted = {
+        str(config["competition"]["id_col"]),
+        str(config["competition"]["target"]),
+    }
+    selected = list(dict.fromkeys([*lookup_columns, *numeric_columns]))
+    forbidden = sorted(restricted.intersection(selected))
+    if forbidden:
+        raise ValueError(
+            "Lookup token columns cannot contain the identifier or target: "
+            f"{forbidden}"
+        )
+
+    unknown_train = [column for column in selected if column not in train_feat]
+    unknown_test = [column for column in selected if column not in test_feat]
+    if unknown_train or unknown_test:
+        raise ValueError(
+            "Lookup token configuration contains unknown transformed columns: "
+            f"train={unknown_train}, test={unknown_test}"
+        )
+
+    raw_precision = model_cfg.get("decimal_places") or {}
+    if not isinstance(raw_precision, dict):
+        raise ValueError("model.decimal_places must be a mapping")
+    decimal_places: dict[str, int] = {}
+    for column in lookup_columns:
+        if column not in raw_precision:
+            raise ValueError(
+                f"model.decimal_places is missing lookup column {column!r}"
+            )
+        decimals = raw_precision[column]
+        if type(decimals) is not int or decimals < 0:
+            raise ValueError(
+                "model.decimal_places values must be non-negative integers"
+            )
+        decimal_places[column] = decimals
+    extra_precision = sorted(set(raw_precision) - set(lookup_columns))
+    if extra_precision:
+        raise ValueError(
+            "model.decimal_places contains non-lookup columns: "
+            f"{extra_precision}"
+        )
+    return lookup_columns, numeric_columns, decimal_places
+
+
+def _run_lookup_cv(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    y: pd.Series,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Run target-isolated fixed-fold CV for the Lookup-Transformer backend."""
+    from s6e8.models import lookup_transformer as lookup_backend
+
+    reference_cfg = config.get("external_reference") or {}
+    if bool(reference_cfg.get("enabled", False)):
+        raise ValueError(
+            "Lookup-Transformer does not accept external reference features"
+        )
+
+    seed = int(config["experiment"]["seed"])
+    set_seed(seed)
+    train_feat = transform(train_df, config)
+    test_feat = transform(test_df, config)
+    lookup_columns, numeric_columns, decimal_places = _lookup_model_columns(
+        train_feat,
+        test_feat,
+        config,
+    )
+    predictor_columns = list(dict.fromkeys([*lookup_columns, *numeric_columns]))
+    predictor_train = train_feat.loc[:, predictor_columns]
+    predictor_test = test_feat.loc[:, predictor_columns]
+    preprocessor = lookup_backend.LookupPreprocessor(
+        lookup_columns=lookup_columns,
+        numeric_columns=numeric_columns,
+        decimal_places=decimal_places,
+    ).fit(predictor_train, predictor_test)
+    preprocessing_provenance = preprocessor.provenance()
+    _assert_target_free_provenance(preprocessing_provenance)
+    train_arrays = preprocessor.transform(predictor_train)
+    test_arrays = preprocessor.transform(predictor_test)
+
+    y_np = y.to_numpy() if isinstance(y, pd.Series) else np.asarray(y)
+    y_np = np.asarray(y_np).reshape(-1)
+    if len(y_np) != len(train_arrays.lookup_ids):
+        raise ValueError("Training labels must align with transformed predictors")
+
+    cv_cfg = config["cv"]
+    splitter = StratifiedKFold(
+        n_splits=int(cv_cfg["n_splits"]),
+        shuffle=bool(cv_cfg.get("shuffle", True)),
+        random_state=seed,
+    )
+    dtype = _float_dtype(config)
+    oof = np.zeros(len(train_arrays.lookup_ids), dtype=dtype)
+    test_pred = np.zeros(len(test_arrays.lookup_ids), dtype=dtype)
+    fold_ids = np.full(len(train_arrays.lookup_ids), -1, dtype=np.int16)
+    fold_scores: list[float] = []
+    best_iterations: list[int] = []
+    fold_diagnostics: list[dict[str, Any]] = []
+    accelerator = get_accelerator(config)
+    device = "cuda" if accelerator == "gpu" else "cpu"
+    params = dict(config["model"].get("params") or {})
+
+    print(
+        f"model={config['model']['name']} backend=lookup_transformer "
+        f"accelerator={accelerator} n_lookup={len(lookup_columns)} "
+        f"n_numeric_tokens={len(numeric_columns)}",
+        flush=True,
+    )
+    for fold, (train_index, valid_index) in enumerate(
+        splitter.split(train_arrays.numeric_values, y_np)
+    ):
+        fold_seed = seed + fold
+        fold_ids[valid_index] = fold
+        fold_train_arrays = lookup_backend.LookupBatchArrays(
+            lookup_ids=train_arrays.lookup_ids[train_index],
+            numeric_values=train_arrays.numeric_values[train_index],
+            missing_mask=train_arrays.missing_mask[train_index],
+        )
+        fold_valid_arrays = lookup_backend.LookupBatchArrays(
+            lookup_ids=train_arrays.lookup_ids[valid_index],
+            numeric_values=train_arrays.numeric_values[valid_index],
+            missing_mask=train_arrays.missing_mask[valid_index],
+        )
+        valid_pred, fold_test_pred, best_epoch, diagnostics = (
+            lookup_backend.train_lookup_fold(
+                train_arrays=fold_train_arrays,
+                train_y=y_np[train_index],
+                valid_arrays=fold_valid_arrays,
+                valid_y=y_np[valid_index],
+                test_arrays=test_arrays,
+                lookup_cardinalities=preprocessor.lookup_cardinalities,
+                params=dict(params),
+                seed=fold_seed,
+                device=device,
+            )
+        )
+        valid_pred = np.asarray(valid_pred, dtype=dtype).reshape(-1)
+        fold_test_pred = np.asarray(fold_test_pred, dtype=dtype).reshape(-1)
+        if len(valid_pred) != len(valid_index):
+            raise ValueError("Lookup validation predictions are misaligned")
+        if len(fold_test_pred) != len(test_pred):
+            raise ValueError("Lookup test predictions are misaligned")
+        if not np.isfinite(valid_pred).all() or not np.isfinite(fold_test_pred).all():
+            raise ValueError("Lookup fold predictions must be finite")
+        oof[valid_index] = valid_pred
+        test_pred += fold_test_pred / splitter.n_splits
+        auc = float(roc_auc_score(y_np[valid_index], valid_pred))
+        fold_scores.append(auc)
+        best_iterations.append(int(best_epoch))
+        fold_record = dict(diagnostics)
+        fold_record.update(
+            {
+                "fold": int(fold),
+                "seed": int(fold_seed),
+                "auc": auc,
+                "best_epoch": int(best_epoch),
+            }
+        )
+        fold_diagnostics.append(fold_record)
+        print(
+            f"[fold {fold + 1}] AUC={auc:.6f} best_epoch={best_epoch} "
+            f"seed={fold_seed}",
+            flush=True,
+        )
+
+    if np.any(fold_ids < 0):
+        raise RuntimeError("Every training row must receive exactly one validation fold")
+    cv_mean = float(np.mean(fold_scores))
+    cv_std = float(np.std(fold_scores))
+    oof_auc = float(roc_auc_score(y_np, oof))
+    print(f"[cv] mean={cv_mean:.6f} std={cv_std:.6f} oof={oof_auc:.6f}")
+    return {
+        "oof": oof,
+        "test_pred": test_pred,
+        "fold_ids": fold_ids,
+        "feature_names": list(numeric_columns),
+        "lookup_columns": list(lookup_columns),
+        "cat_cols": [],
+        "data_provenance": {
+            "lookup_preprocessing": preprocessing_provenance,
+        },
+        "preprocessing_provenance": preprocessing_provenance,
+        "fold_diagnostics": fold_diagnostics,
+        "fold_scores": fold_scores,
+        "best_iterations": best_iterations,
+        "cv_mean": cv_mean,
+        "cv_std": cv_std,
+        "oof_auc": oof_auc,
+        "train_ids": train_df[config["competition"]["id_col"]].to_numpy(),
+        "test_ids": test_df[config["competition"]["id_col"]].to_numpy(),
+        "y": y_np,
+        "backend": "lookup_transformer",
+        "te_config": None,
+        "te_fold_stats": [],
+        "feature_importances": [],
+    }
 
 
 def _run_cv(
@@ -186,7 +463,9 @@ def _run_cv(
 ) -> dict[str, Any]:
     seed = int(config["experiment"]["seed"])
     set_seed(seed)
-    X, X_test, y_np, cols, cat_cols = _prepare_xy(train_df, test_df, y, config)
+    X, X_test, y_np, cols, cat_cols, data_provenance = _prepare_xy(
+        train_df, test_df, y, config
+    )
     te_cfg = parse_exact_te_config(config)
     cv_cfg = config["cv"]
     splitter = StratifiedKFold(
@@ -197,6 +476,7 @@ def _run_cv(
     dtype = _float_dtype(config)
     oof = np.zeros(len(X), dtype=dtype)
     test_pred = np.zeros(len(X_test), dtype=dtype)
+    fold_ids = np.full(len(X), -1, dtype=np.int16)
     fold_scores: list[float] = []
     best_iterations: list[int] = []
     te_fold_stats: list[dict[str, Any]] = []
@@ -209,6 +489,7 @@ def _run_cv(
         "seed": seed,
         "accelerator": get_accelerator(config),
         "feature_importances": feature_importances,
+        "data_provenance": data_provenance,
     }
     te_note = ""
     if te_cfg is not None:
@@ -218,7 +499,9 @@ def _run_cv(
         f"accelerator={ctx['accelerator']} n_raw_features={len(cols)}{te_note}"
     )
 
-    for fold, (tr_idx, va_idx) in enumerate(splitter.split(X, y_np), start=1):
+    for fold, (tr_idx, va_idx) in enumerate(splitter.split(X, y_np)):
+        display_fold = fold + 1
+        fold_ids[va_idx] = fold
         X_tr, X_va = X.iloc[tr_idx], X.iloc[va_idx]
         y_tr, y_va = y_np[tr_idx], y_np[va_idx]
         X_te = X_test
@@ -232,7 +515,7 @@ def _run_cv(
             n_unseen = sum(int(v["n_val_unseen"]) for v in te_stats["columns"].values())
             n_rare = sum(int(v["n_val_rare"]) for v in te_stats["columns"].values())
             print(
-                f"[fold {fold}] n_features={len(feature_names)} "
+                f"[fold {display_fold}] n_features={len(feature_names)} "
                 f"te_unseen={n_unseen} te_rare={n_rare}"
             )
         va_pred, te_pred, best_iter = fold_fn(X_tr, y_tr, X_va, y_va, X_te, ctx)
@@ -241,7 +524,10 @@ def _run_cv(
         auc = float(roc_auc_score(y_va, va_pred))
         fold_scores.append(auc)
         best_iterations.append(int(best_iter))
-        print(f"[fold {fold}] AUC={auc:.6f} best_iter={best_iter}")
+        print(f"[fold {display_fold}] AUC={auc:.6f} best_iter={best_iter}")
+
+    if np.any(fold_ids < 0):
+        raise RuntimeError("Every training row must receive exactly one validation fold")
 
     cv_mean = float(np.mean(fold_scores))
     cv_std = float(np.std(fold_scores))
@@ -250,7 +536,10 @@ def _run_cv(
     return {
         "oof": oof,
         "test_pred": test_pred,
+        "fold_ids": fold_ids,
         "feature_names": feature_names,
+        "cat_cols": cat_cols,
+        "data_provenance": data_provenance,
         "fold_scores": fold_scores,
         "best_iterations": best_iterations,
         "cv_mean": cv_mean,
@@ -273,6 +562,8 @@ def train_cv(
     config: dict[str, Any],
 ) -> dict[str, Any]:
     backend = resolve_backend(config)
+    if backend == "lookup_transformer":
+        return _run_lookup_cv(train_df, test_df, y, config)
     trainers = {
         "lightgbm": _fold_lightgbm,
         "xgboost": _fold_xgboost,
@@ -284,6 +575,11 @@ def train_cv(
 
 
 def _fold_lightgbm(X_tr, y_tr, X_va, y_va, X_test, ctx):
+    try:
+        import lightgbm as lgb
+    except ImportError as exc:
+        raise ImportError("Install lightgbm to use model.name: lightgbm") from exc
+
     model_cfg = ctx["config"]["model"]
     params = apply_model_device(
         dict(model_cfg["params"]), model_cfg["name"], ctx["accelerator"]
@@ -395,6 +691,15 @@ def _fold_catboost(X_tr, y_tr, X_va, y_va, X_test, ctx):
     best_iter = int(model.get_best_iteration() or 0)
     va_pred = model.predict_proba(X_va_c)[:, 1]
     te_pred = model.predict_proba(X_te_c)[:, 1]
+    importance = model.get_feature_importance()
+    ctx.setdefault("feature_importances", []).append(
+        {
+            "gain": {
+                name: float(value)
+                for name, value in zip(X_tr.columns, importance)
+            }
+        }
+    )
     return va_pred, te_pred, best_iter
 
 
@@ -520,28 +825,34 @@ def save_artifacts(
         oof_npy = oof_dir / "oof.npy"
         np.save(oof_npy, artifacts["oof"])
         oof_pq = oof_dir / "oof.parquet"
-        pd.DataFrame(
+        oof_predictions_pq = oof_dir / "oof_predictions.parquet"
+        oof_frame = pd.DataFrame(
             {
                 id_col: artifacts["train_ids"],
                 target: artifacts["y"],
                 "pred": artifacts["oof"],
+                "fold": artifacts["fold_ids"],
             }
-        ).to_parquet(oof_pq, index=False)
+        )
+        oof_frame.to_parquet(oof_pq, index=False)
+        oof_frame.to_parquet(oof_predictions_pq, index=False)
         written["oof_npy"] = _relpath(oof_npy)
         written["oof_parquet"] = _relpath(oof_pq)
+        written["oof_predictions"] = _relpath(oof_predictions_pq)
 
     if output_cfg.get("save_test", True):
         test_npy = oof_dir / "test.npy"
         np.save(test_npy, artifacts["test_pred"])
         test_pq = oof_dir / "test.parquet"
-        pd.DataFrame(
-            {
-                id_col: artifacts["test_ids"],
-                "pred": artifacts["test_pred"],
-            }
-        ).to_parquet(test_pq, index=False)
+        test_predictions_pq = oof_dir / "test_predictions.parquet"
+        test_frame = pd.DataFrame(
+            {id_col: artifacts["test_ids"], "pred": artifacts["test_pred"]}
+        )
+        test_frame.to_parquet(test_pq, index=False)
+        test_frame.to_parquet(test_predictions_pq, index=False)
         written["test_npy"] = _relpath(test_npy)
         written["test_parquet"] = _relpath(test_pq)
+        written["test_predictions"] = _relpath(test_predictions_pq)
 
     git_commit = artifacts.get("git_commit", get_git_commit())
     runtime_seconds = artifacts.get("runtime_seconds")
@@ -561,18 +872,26 @@ def save_artifacts(
         git_commit=git_commit,
         extra=extra,
     )
+    backend = artifacts.get("backend") or resolve_backend(config)
+    versions = dependency_versions(backend)
     metrics = {
         **summary,
         "package_version": package_version,
-        "lightgbm_version": lgb.__version__,
+        "lightgbm_version": versions["lightgbm"],
+        "dependency_versions": versions,
         "metric": config["competition"]["metric"],
         "cv_mean": artifacts["cv_mean"],
         "cv_std": artifacts["cv_std"],
         "oof_auc": artifacts["oof_auc"],
         "fold_scores": artifacts["fold_scores"],
+        "fold_auc_min": float(min(artifacts["fold_scores"])),
+        "fold_auc_max": float(max(artifacts["fold_scores"])),
         "best_iterations": artifacts["best_iterations"],
         "n_features": len(artifacts["feature_names"]),
         "feature_names": artifacts["feature_names"],
+        "n_categorical_features": len(artifacts.get("cat_cols") or []),
+        "categorical_feature_names": artifacts.get("cat_cols") or [],
+        "data_provenance": artifacts.get("data_provenance") or {},
         "n_train": int(len(artifacts["oof"])),
         "n_test": int(len(artifacts["test_pred"])),
         "n_splits": int(config["cv"]["n_splits"]),
@@ -585,6 +904,13 @@ def save_artifacts(
     te_fold_stats = artifacts.get("te_fold_stats")
     if te_fold_stats:
         metrics["te_fold_stats"] = te_fold_stats
+    preprocessing_provenance = artifacts.get("preprocessing_provenance")
+    if preprocessing_provenance is not None:
+        _assert_target_free_provenance(preprocessing_provenance)
+        metrics["preprocessing_provenance"] = preprocessing_provenance
+    fold_diagnostics = artifacts.get("fold_diagnostics")
+    if fold_diagnostics is not None:
+        metrics["fold_diagnostics"] = fold_diagnostics
     importance_mean = _mean_feature_importance(artifacts.get("feature_importances") or [])
     if importance_mean:
         metrics["feature_importance_gain_mean"] = importance_mean
@@ -593,7 +919,22 @@ def save_artifacts(
     written["metrics"] = _relpath(metrics_path)
 
     experiment_path = oof_dir / "experiment.json"
-    experiment_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    resolved_config = {k: v for k, v in config.items() if k != "_config_path"}
+    experiment_payload = {
+        **summary,
+        "dependency_versions": versions,
+        "resolved_config": resolved_config,
+        "feature_names": artifacts["feature_names"],
+        "categorical_feature_names": artifacts.get("cat_cols") or [],
+        "data_provenance": artifacts.get("data_provenance") or {},
+    }
+    if preprocessing_provenance is not None:
+        experiment_payload["preprocessing_provenance"] = preprocessing_provenance
+    if fold_diagnostics is not None:
+        experiment_payload["fold_diagnostics"] = fold_diagnostics
+    experiment_path.write_text(
+        json.dumps(experiment_payload, indent=2), encoding="utf-8"
+    )
     written["experiment"] = _relpath(experiment_path)
 
     is_diagnostic = bool(config["experiment"].get("diagnostic", False))

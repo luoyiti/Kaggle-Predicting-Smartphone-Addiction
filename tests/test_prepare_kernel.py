@@ -1,8 +1,21 @@
 from __future__ import annotations
 
 import json
+import importlib.util
+import re
 import subprocess
 import sys
+
+import pytest
+
+
+def load_prepare_kernel(repo_root):
+    path = repo_root / "scripts" / "prepare_kaggle_kernel.py"
+    spec = importlib.util.spec_from_file_location("prepare_kaggle_kernel_test", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_prepare_kernel_staging(tmp_path, repo_root):
@@ -42,6 +55,46 @@ def test_prepare_kernel_staging(tmp_path, repo_root):
     compile(runner, str(staging / "runner.py"), "exec")
 
 
+def test_prepare_kernel_attaches_enabled_external_reference_dataset(tmp_path, repo_root):
+    staging = tmp_path / "kernel-reference"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "prepare_kaggle_kernel.py"),
+            "--config",
+            "configs/catboost_exactcat_budget_refdist_v1.yaml",
+            "--accelerator",
+            "gpu",
+            "--username",
+            "testuser",
+            "--out",
+            str(staging),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    assert proc.returncode == 0
+    meta = json.loads((staging / "kernel-metadata.json").read_text(encoding="utf-8"))
+    assert meta["dataset_sources"] == [
+        "jayjoshi37/smartphone-usage-and-addiction-prediction"
+    ]
+    assert meta["competition_sources"] == ["playground-series-s6e8"]
+
+
+def test_configured_dataset_sources_accepts_only_enabled_owner_dataset_slugs(repo_root):
+    prepare = load_prepare_kernel(repo_root)
+    assert prepare.configured_dataset_sources({}) == []
+    assert prepare.configured_dataset_sources(
+        {"external_reference": {"enabled": False, "dataset_source": "owner/dataset"}}
+    ) == []
+    with pytest.raises(ValueError, match="owner/dataset"):
+        prepare.configured_dataset_sources(
+            {"external_reference": {"enabled": True, "dataset_source": "not-a-slug"}}
+        )
+
+
 def test_prepare_kernel_gpu_metadata(tmp_path, repo_root):
     staging = tmp_path / "kernel-gpu"
     subprocess.run(
@@ -65,6 +118,63 @@ def test_prepare_kernel_gpu_metadata(tmp_path, repo_root):
     meta = json.loads((staging / "kernel-metadata.json").read_text(encoding="utf-8"))
     assert meta["enable_gpu"] is True
     assert meta["machine_shape"] == "NvidiaTeslaT4"
+
+
+def test_custom_kernel_slug_gets_a_matching_default_title(tmp_path, repo_root):
+    """Catch Kaggle 409s caused by a title that resolves to a different id."""
+    staging = tmp_path / "kernel-custom-slug"
+    slug = "s6e8-histgb-nocat-long-v1"
+    subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "prepare_kaggle_kernel.py"),
+            "--config",
+            "configs/histgb_nocat_long_v1.yaml",
+            "--accelerator",
+            "cpu",
+            "--username",
+            "testuser",
+            "--slug",
+            slug,
+            "--out",
+            str(staging),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    meta = json.loads((staging / "kernel-metadata.json").read_text(encoding="utf-8"))
+    title_slug = re.sub(r"[^a-z0-9]+", "-", meta["title"].lower()).strip("-")
+    assert meta["id"] == f"testuser/{slug}"
+    assert title_slug == slug
+
+
+def test_explicit_kernel_title_is_preserved(tmp_path, repo_root):
+    staging = tmp_path / "kernel-explicit-title"
+    title = "Explicit Human Title"
+    subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "prepare_kaggle_kernel.py"),
+            "--config",
+            "configs/baseline.yaml",
+            "--accelerator",
+            "cpu",
+            "--username",
+            "testuser",
+            "--title",
+            title,
+            "--out",
+            str(staging),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    meta = json.loads((staging / "kernel-metadata.json").read_text(encoding="utf-8"))
+    assert meta["title"] == title
 
 
 def test_kernel_metadata_template_is_safe(repo_root):

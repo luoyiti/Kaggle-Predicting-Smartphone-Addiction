@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import importlib.util
 import io
 import json
 import os
@@ -167,22 +168,57 @@ def ensure_repo(ctx: dict[str, Any]) -> Path:
     return clone_repo(dest, str(repo), ctx.get("git_commit"))
 
 
-def maybe_install_requirements(root: Path) -> None:
+CORE_MODULES = ("lightgbm", "pandas", "pyarrow", "sklearn", "yaml")
+
+
+def _pip_install(arguments: list[str]) -> None:
+    cmd = [sys.executable, "-m", "pip", "install", "-q", *arguments]
+    print("Installing requirements:", " ".join(cmd))
+    subprocess.run(cmd, check=True)
+
+
+def ensure_core_requirements(root: Path) -> None:
+    """Install the repository requirements only when a core dependency is absent."""
     req = root / "requirements.txt"
     if not req.is_file():
         return
-    try:
-        import lightgbm  # noqa: F401
-        import pandas  # noqa: F401
-        import pyarrow  # noqa: F401
-        import sklearn  # noqa: F401
-        import yaml  # noqa: F401
+    if all(importlib.util.find_spec(module) is not None for module in CORE_MODULES):
         return
-    except ImportError:
-        pass
-    cmd = [sys.executable, "-m", "pip", "install", "-q", "-r", str(req)]
-    print("Installing requirements:", " ".join(cmd))
-    subprocess.run(cmd, check=True)
+    _pip_install(["-r", str(req)])
+
+
+def optional_requirements(config: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return backend-only packages absent from the baseline requirements file."""
+    backend = str(config["model"]["name"]).lower()
+    if backend in {"catboost", "cat", "cb"}:
+        return [("catboost", "catboost>=1.2.8,<2")]
+    if backend in {"lookup_transformer", "lookup"}:
+        return [("torch", "torch>=2.2,<3")]
+    return []
+
+
+def load_selected_config(root: Path, ctx: dict[str, Any]) -> dict[str, Any]:
+    """Load the selected config only after PyYAML is guaranteed available."""
+    import yaml
+
+    config_path = Path(str(ctx["config"]))
+    if not config_path.is_absolute():
+        config_path = root / config_path
+    if not config_path.is_file():
+        raise FileNotFoundError(f"Experiment config not found: {config_path}")
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(config, dict):
+        raise ValueError(f"Experiment config must contain a mapping: {config_path}")
+    return config
+
+
+def maybe_install_requirements(root: Path, ctx: dict[str, Any]) -> None:
+    """Ensure core packages, then add only the selected model backend package."""
+    ensure_core_requirements(root)
+    config = load_selected_config(root, ctx)
+    for module, requirement in optional_requirements(config):
+        if importlib.util.find_spec(module) is None:
+            _pip_install([requirement])
 
 
 OUTPUT_DIR_NAMES = ("oof", "submissions", "experiments")
@@ -258,7 +294,7 @@ def main() -> None:
         print(f"kaggle_runner git_commit={ctx['git_commit']}")
     root = ensure_repo(ctx)
     print(f"kaggle_runner repo_root={root}")
-    maybe_install_requirements(root)
+    maybe_install_requirements(root, ctx)
     run_train(root, ctx, overwrite=args.overwrite)
     copy_outputs_to_kaggle_working(root)
 

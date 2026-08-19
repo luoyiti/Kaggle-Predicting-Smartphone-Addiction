@@ -1,0 +1,19 @@
+{
+  "experiment": "catboost_numeric_v1",
+  "git_commit": "e16c9546c57d9d21e5c0afb091a52c57d19b907d",
+  "config": "/kaggle/working/src/configs/catboost_numeric_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "catboost_structural_v1",
+  "model_version": "catboost_v1",
+  "accelerator": "gpu",
+  "cv_auc": 0.9591265017150454,
+  "runtime_seconds": 278.326,
+  "timestamp": "2026-08-19T05:34:14Z",
+  "environment": "kaggle",
+  "hypothesis": "Native CatBoost CTRs on the three original categoricals provide the numeric-only control.",
+  "change": "CatBoost control with raw numeric values and original categoricals only.",
+  "cv_std": 0.0005735784290070974,
+  "diagnostic": false,
+  "backend": "catboost"
+}

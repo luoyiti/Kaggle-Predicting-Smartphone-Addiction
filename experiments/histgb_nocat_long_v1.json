@@ -1,0 +1,19 @@
+{
+  "experiment": "histgb_nocat_long_v1",
+  "git_commit": "fc6e06c595583d3b55d401186ec6ba8d1b3971b9",
+  "config": "/kaggle/working/src/configs/histgb_nocat_long_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "nocat_v1",
+  "model_version": "histgb_long_v1",
+  "accelerator": "cpu",
+  "cv_auc": 0.9634682524075684,
+  "runtime_seconds": 409.735,
+  "timestamp": "2026-08-18T08:41:36Z",
+  "environment": "kaggle",
+  "hypothesis": "The full-data histgb_nocat run reached max_iter=500 on every fold while remaining 0.00163 AUC behind lgbm_nocat. Extending only the boosting budget should reveal whether the gap is undertraining rather than model bias.\n",
+  "change": "histgb_nocat with num_boost_round increased from 500 to 1400 (the trainer maps it to HistGB max_iter); features, CV, seed, tree structure, regularization, and early stopping are unchanged.\n",
+  "cv_std": 0.0004650743826901847,
+  "diagnostic": false,
+  "backend": "histgb"
+}
