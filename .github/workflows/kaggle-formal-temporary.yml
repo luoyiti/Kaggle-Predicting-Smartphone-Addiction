@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   train:
+    if: ${{ false }}
     name: catboost_exactcat_budget_lattice_reflabel_v1
     runs-on: ubuntu-latest
     timeout-minutes: 330
