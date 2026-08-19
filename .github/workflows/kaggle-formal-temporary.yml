@@ -6,13 +6,12 @@ on:
       - ".github/workflows/kaggle-formal-temporary.yml"
 
 concurrency:
-  group: kaggle-formal-s6e8-catboost-exactcat-budget-lattice-v1
+  group: kaggle-formal-s6e8-catboost-exactcat-budget-lattice-refdist-v1
   cancel-in-progress: false
 
 jobs:
   train:
-    if: ${{ false }}
-    name: catboost_exactcat_budget_lattice_v1
+    name: catboost_exactcat_budget_lattice_refdist_v1
     runs-on: ubuntu-latest
     timeout-minutes: 330
     permissions:
@@ -23,9 +22,9 @@ jobs:
       KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
       S6E8_GIT_COMMIT: ${{ github.sha }}
       S6E8_GIT_REPO: https://github.com/${{ github.repository }}.git
-      INPUT_CONFIG: configs/catboost_exactcat_budget_lattice_v1.yaml
+      INPUT_CONFIG: configs/catboost_exactcat_budget_lattice_refdist_v1.yaml
       INPUT_ACCELERATOR: gpu
-      INPUT_KERNEL_SLUG: s6e8-catboost-exactcat-budget-lattice-v1
+      INPUT_KERNEL_SLUG: s6e8-catboost-exactcat-budget-lattice-refdist-v1
       INPUT_GPU_SHAPE: NvidiaTeslaT4
     steps:
       - name: Checkout
@@ -85,7 +84,7 @@ jobs:
 
       - name: Validate formal artifacts
         env:
-          EXPERIMENT: catboost_exactcat_budget_lattice_v1
+          EXPERIMENT: catboost_exactcat_budget_lattice_refdist_v1
         run: |
           python - <<'PY'
           import json
@@ -109,11 +108,46 @@ jobs:
           assert metrics["n_splits"] == 5
           assert metrics["git_commit"] == os.environ["S6E8_GIT_COMMIT"]
           assert metrics["dependency_versions"]["catboost"]
+          provenance = metrics["data_provenance"]
+          expected_filename = "Smartphone_Usage_And_Addiction_Analysis_7500_Rows.csv"
+          expected_legacy = (
+              "/kaggle/input/smartphone-usage-and-addiction-prediction/"
+              + expected_filename
+          )
+          expected_typed = (
+              "/kaggle/input/datasets/jayjoshi37/"
+              "smartphone-usage-and-addiction-prediction/"
+              + expected_filename
+          )
+          assert provenance["sha256"] == (
+              "2194ce1946e8559f26780049c8d972857d8378104f2c9ec25ed9ec35409f1074"
+          )
+          assert provenance["configured_path"] == expected_legacy
+          assert provenance["path"] in {expected_legacy, expected_typed}
+          assert provenance["dataset_source"] == (
+              "jayjoshi37/smartphone-usage-and-addiction-prediction"
+          )
+          assert provenance["source_url"] == (
+              "https://www.kaggle.com/datasets/jayjoshi37/"
+              "smartphone-usage-and-addiction-prediction"
+          )
+          assert provenance["mode"] == "distribution"
+          assert provenance["external_supervision"] is False
+          assert provenance["raw_rows"] == 7_500
+          assert provenance["unique_rows"] == 7_500
+          assert provenance["duplicate_rows_removed"] == 0
+          assert 0 <= provenance["query_overlap_rows_removed"] <= 7_500
+          assert (
+              provenance["unique_rows"]
+              - provenance["query_overlap_rows_removed"]
+              == provenance["retained_rows"]
+          )
           print(json.dumps({
               "experiment": exp,
               "oof_auc": metrics["oof_auc"],
               "fold_scores": metrics["fold_scores"],
               "git_commit": metrics["git_commit"],
+              "data_provenance": provenance,
           }, indent=2))
           PY
 
@@ -133,7 +167,7 @@ jobs:
         if: always() && steps.download.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: kaggle-formal-catboost_exactcat_budget_lattice_v1-${{ github.run_id }}
+          name: kaggle-formal-catboost_exactcat_budget_lattice_refdist_v1-${{ github.run_id }}
           path: artifacts/kaggle-output
           if-no-files-found: error
 
