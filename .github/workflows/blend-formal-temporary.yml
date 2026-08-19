@@ -1,4 +1,4 @@
-name: Formal Blend Temporary
+name: Formal Lookup Blend Temporary
 
 on:
   pull_request:
@@ -6,15 +6,14 @@ on:
       - ".github/workflows/blend-formal-temporary.yml"
 
 concurrency:
-  group: formal-blend-structural-v1
+  group: formal-blend-lookup-v1
   cancel-in-progress: false
 
 jobs:
   blend:
-    if: ${{ false }}
-    name: honest-lofo-blends
+    name: honest-lofo-lookup-blends
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     permissions:
       actions: read
       contents: read
@@ -30,7 +29,7 @@ jobs:
       - name: Install blend dependencies
         run: pip install numpy pandas pyarrow scikit-learn pyyaml
 
-      - name: Download existing tree artifacts
+      - name: Download existing LGBM and HistGB artifact
         uses: actions/download-artifact@v4
         with:
           name: histgb-nocat-long-v1-32117027692
@@ -39,56 +38,44 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 32117027692
 
-      - name: Download exact-category artifact
+      - name: Download target-free RefDist artifact
         uses: actions/download-artifact@v4
         with:
-          name: kaggle-formal-catboost_exactcat_v1-32220132489
-          path: inputs/exact
+          name: kaggle-formal-catboost_exactcat_budget_lattice_refdist_v1-32227309737
+          path: inputs/refdist
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          run-id: 32220132489
+          run-id: 32227309737
 
-      - name: Download budget artifact
+      - name: Download external-supervision RefLabel artifact
         uses: actions/download-artifact@v4
         with:
-          name: kaggle-formal-catboost_exactcat_budget_v1-32221825133
-          path: inputs/budget
+          name: kaggle-formal-catboost_exactcat_budget_lattice_reflabel_v1-32229211908
+          path: inputs/reflabel
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          run-id: 32221825133
+          run-id: 32229211908
+
+      - name: Download Lookup-Transformer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: kaggle-formal-lookup_transformer_v1-32233860783
+          path: inputs/lookup
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 32233860783
 
       - name: Assemble aligned component root
         run: |
+          set -euo pipefail
           mkdir -p blend-input/oof
+          cp -R inputs/refdist/oof/catboost_exactcat_budget_lattice_refdist_v1 blend-input/oof/
           cp -R inputs/existing/reference/oof/lgbm_nocat blend-input/oof/
           cp -R inputs/existing/new/oof/histgb_nocat_long_v1 blend-input/oof/
-          cp -R inputs/exact/oof/catboost_exactcat_v1 blend-input/oof/
-          cp -R inputs/budget/oof/catboost_exactcat_budget_v1 blend-input/oof/
+          cp -R inputs/lookup/oof/lookup_transformer_v1 blend-input/oof/
+          cp -R inputs/reflabel/oof/catboost_exactcat_budget_lattice_reflabel_v1 blend-input/oof/
 
-      - name: Run honest LOFO candidates
-        run: |
-          python scripts/blend_oof.py \
-            --experiments lgbm_nocat histgb_nocat_long_v1 \
-            --method lofo_grid --grid-step 5 \
-            --name lofo_lgbm_hist_v1 \
-            --oof-dir blend-input/oof --submission-dir blend-output/submissions
-          python scripts/blend_oof.py \
-            --experiments lgbm_nocat catboost_exactcat_budget_v1 \
-            --method lofo_grid --grid-step 5 \
-            --name lofo_lgbm_budget_v1 \
-            --oof-dir blend-input/oof --submission-dir blend-output/submissions
-          python scripts/blend_oof.py \
-            --experiments histgb_nocat_long_v1 catboost_exactcat_budget_v1 \
-            --method lofo_grid --grid-step 5 \
-            --name lofo_hist_budget_v1 \
-            --oof-dir blend-input/oof --submission-dir blend-output/submissions
-          python scripts/blend_oof.py \
-            --experiments lgbm_nocat histgb_nocat_long_v1 catboost_exactcat_budget_v1 \
-            --method lofo_grid --grid-step 5 \
-            --name lofo_lgbm_hist_budget_v1 \
-            --oof-dir blend-input/oof --submission-dir blend-output/submissions
-
-      - name: Validate blend artifacts
+      - name: Validate component artifacts and provenance
         run: |
           python - <<'PY'
           import json
@@ -96,35 +83,334 @@ jobs:
 
           import numpy as np
           import pandas as pd
+          from sklearn.metrics import roc_auc_score
 
-          names = [
-              "lofo_lgbm_hist_v1",
-              "lofo_lgbm_budget_v1",
-              "lofo_hist_budget_v1",
-              "lofo_lgbm_hist_budget_v1",
-          ]
-          for name in names:
-              root = Path("blend-input/oof") / name
-              metrics = json.loads((root / "metrics.json").read_text())
-              oof = pd.read_parquet(root / "oof.parquet")
-              test = pd.read_parquet(root / "test.parquet")
+          ROOT = Path("blend-input/oof")
+          N_TRAIN, N_TEST = 691_369, 296_302
+          FOLDS = np.arange(5)
+          SOURCE_SHA256 = "2194ce1946e8559f26780049c8d972857d8378104f2c9ec25ed9ec35409f1074"
+          SOURCE_SLUG = "jayjoshi37/smartphone-usage-and-addiction-prediction"
+          LOOKUP_SHA = "3c4ab56fd77e40889f3099c8d65b68ef7e70c8d8"
+          REFDIST = "catboost_exactcat_budget_lattice_refdist_v1"
+          REFLABEL = "catboost_exactcat_budget_lattice_reflabel_v1"
+          LOOKUP = "lookup_transformer_v1"
+          COMPONENTS = [REFDIST, "lgbm_nocat", "histgb_nocat_long_v1", LOOKUP, REFLABEL]
+
+
+          def prediction_path(folder, kind):
+              for name in (f"{kind}.parquet", f"{kind}_predictions.parquet"):
+                  path = folder / name
+                  if path.is_file():
+                      return path
+              raise AssertionError(f"missing {kind} parquet in {folder}")
+
+
+          def load_component(name):
+              folder = ROOT / name
+              metrics = json.loads((folder / "metrics.json").read_text(encoding="utf-8"))
+              experiment_path = folder / "experiment.json"
+              experiment = json.loads(experiment_path.read_text(encoding="utf-8")) if experiment_path.is_file() else {}
+              oof = pd.read_parquet(prediction_path(folder, "oof"))
+              test = pd.read_parquet(prediction_path(folder, "test"))
+              return metrics, experiment, oof, test
+
+
+          def assert_predictor_only(value, path="provenance"):
+              forbidden = ("target", "label")
+              if isinstance(value, dict):
+                  for key, nested in value.items():
+                      location = f"{path}.{key}"
+                      assert not any(word in str(key).casefold() for word in forbidden), location
+                      assert_predictor_only(nested, location)
+              elif isinstance(value, (list, tuple)):
+                  for index, nested in enumerate(value):
+                      assert_predictor_only(nested, f"{path}.{index}")
+              elif isinstance(value, str):
+                  assert not any(word in value.casefold() for word in forbidden), path
+
+
+          loaded = {name: load_component(name) for name in COMPONENTS}
+          ref_metrics, _, ref_oof, ref_test = loaded[REFDIST]
+          assert set(ref_oof["fold"].unique()) == set(FOLDS)
+          assert ref_oof["fold"].notna().all()
+          reference_ids = ref_oof["id"].to_numpy()
+          reference_test_ids = ref_test["id"].to_numpy()
+          reference_target = ref_oof["addicted_label"].to_numpy()
+          reference_folds = ref_oof["fold"].to_numpy()
+          assert set(np.unique(reference_target)) == {0, 1}
+
+          for name, (metrics, _, oof, test) in loaded.items():
+              assert metrics["experiment"] == name
+              assert len(oof) == N_TRAIN and len(test) == N_TEST
+              assert {"id", "addicted_label", "pred"}.issubset(oof.columns)
+              assert {"id", "pred"}.issubset(test.columns)
+              assert oof["id"].is_unique and test["id"].is_unique
+              assert set(oof["id"]) == set(reference_ids)
+              assert set(test["id"]) == set(reference_test_ids)
+              aligned_oof = oof.set_index("id").loc[reference_ids]
+              assert np.array_equal(aligned_oof["addicted_label"].to_numpy(), reference_target)
+              if "fold" in aligned_oof:
+                  assert aligned_oof["fold"].notna().all()
+                  assert np.array_equal(aligned_oof["fold"].to_numpy(), reference_folds)
+              else:
+                  assert metrics["n_splits"] == 5
+                  assert metrics["seed"] == 42
+              for frame in (oof, test):
+                  predictions = frame["pred"].to_numpy(dtype=float)
+                  assert np.isfinite(predictions).all()
+                  assert ((predictions >= 0.0) & (predictions <= 1.0)).all()
+              recomputed = roc_auc_score(aligned_oof["addicted_label"], aligned_oof["pred"])
+              assert np.isclose(recomputed, metrics["oof_auc"], rtol=0.0, atol=5e-12)
+              if "fold_scores" in metrics:
+                  recomputed_folds = [
+                      roc_auc_score(
+                          aligned_oof.loc[reference_folds == fold, "addicted_label"],
+                          aligned_oof.loc[reference_folds == fold, "pred"],
+                      )
+                      for fold in FOLDS
+                  ]
+                  assert np.allclose(recomputed_folds, metrics["fold_scores"], rtol=0.0, atol=5e-12)
+
+          ref_provenance = ref_metrics["data_provenance"]
+          assert ref_provenance["sha256"] == SOURCE_SHA256
+          assert ref_provenance["dataset_source"] == SOURCE_SLUG
+          assert ref_provenance["mode"] == "distribution"
+          assert ref_provenance["external_supervision"] is False
+          assert ref_provenance["raw_rows"] == ref_provenance["unique_rows"] == 7_500
+          assert ref_provenance["retained_rows"] == 7_500
+          assert ref_provenance["duplicate_rows_removed"] == 0
+          assert ref_provenance["query_overlap_rows_removed"] == 0
+
+          reflabel_metrics, _, _, _ = loaded[REFLABEL]
+          reflabel_provenance = reflabel_metrics["data_provenance"]
+          assert reflabel_provenance["sha256"] == SOURCE_SHA256
+          assert reflabel_provenance["dataset_source"] == SOURCE_SLUG
+          assert reflabel_provenance["mode"] == "label_aware"
+          assert reflabel_provenance["external_supervision"] is True
+          assert reflabel_provenance["target_column"] == "addicted_label"
+          assert reflabel_provenance["raw_rows"] == reflabel_provenance["unique_rows"] == 7_500
+          assert reflabel_provenance["retained_rows"] == 7_500
+          assert reflabel_provenance["duplicate_rows_removed"] == 0
+          assert reflabel_provenance["query_overlap_rows_removed"] == 0
+
+          lookup_metrics, lookup_experiment, _, _ = loaded[LOOKUP]
+          assert lookup_metrics["git_commit"] == lookup_experiment["git_commit"] == LOOKUP_SHA
+          assert lookup_metrics["backend"] == lookup_metrics["model_name"] == "lookup_transformer"
+          assert lookup_metrics["n_splits"] == 5
+          assert isinstance(lookup_metrics["dependency_versions"].get("torch"), str)
+          assert lookup_metrics["dependency_versions"]["torch"].strip()
+          lookup_preprocessing = lookup_metrics["preprocessing_provenance"]
+          assert lookup_preprocessing["transductive_predictor_preprocessing"] is True
+          assert lookup_metrics["data_provenance"] == {"lookup_preprocessing": lookup_preprocessing}
+          assert lookup_experiment["preprocessing_provenance"] == lookup_preprocessing
+          assert lookup_experiment["data_provenance"] == lookup_metrics["data_provenance"]
+          assert lookup_experiment["resolved_config"]["external_reference"]["enabled"] is False
+          assert_predictor_only(lookup_preprocessing)
+          assert_predictor_only(lookup_metrics["data_provenance"], "data_provenance")
+          assert len(lookup_metrics["fold_diagnostics"]) == 5
+          assert {item["fold"] for item in lookup_metrics["fold_diagnostics"]} == set(FOLDS)
+
+          print(json.dumps({
+              "validated_components": COMPONENTS,
+              "refdist_oof_auc": ref_metrics["oof_auc"],
+              "lookup_oof_auc": lookup_metrics["oof_auc"],
+              "reflabel_external_supervision": True,
+          }, indent=2))
+          PY
+
+      - name: Run preregistered honest LOFO candidates
+        run: |
+          set -euo pipefail
+          python scripts/blend_oof.py \
+            --experiments catboost_exactcat_budget_lattice_refdist_v1 lgbm_nocat histgb_nocat_long_v1 \
+            --method lofo_grid --grid-step 5 \
+            --name lofo_refdist_lgbm_hist_v1 \
+            --oof-dir blend-input/oof --submission-dir blend-output/submissions
+          python scripts/blend_oof.py \
+            --experiments catboost_exactcat_budget_lattice_refdist_v1 lgbm_nocat histgb_nocat_long_v1 lookup_transformer_v1 \
+            --method lofo_grid --grid-step 5 \
+            --name lofo_refdist_lgbm_hist_lookup_v1 \
+            --oof-dir blend-input/oof --submission-dir blend-output/submissions
+          python scripts/blend_oof.py \
+            --experiments catboost_exactcat_budget_lattice_refdist_v1 lookup_transformer_v1 \
+            --method lofo_grid --grid-step 5 \
+            --name lofo_refdist_lookup_v1 \
+            --oof-dir blend-input/oof --submission-dir blend-output/submissions
+          python scripts/blend_oof.py \
+            --experiments catboost_exactcat_budget_lattice_reflabel_v1 lookup_transformer_v1 \
+            --method lofo_grid --grid-step 5 \
+            --name lofo_reflabel_lookup_external_v1 \
+            --oof-dir blend-input/oof --submission-dir blend-output/submissions
+
+      - name: Validate blends and evaluate Lookup promotion
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          import numpy as np
+          import pandas as pd
+          from sklearn.metrics import roc_auc_score
+
+          ROOT = Path("blend-input/oof")
+          OUT = Path("blend-output")
+          OUT.mkdir(parents=True, exist_ok=True)
+          REFDIST = "catboost_exactcat_budget_lattice_refdist_v1"
+          REFLABEL = "catboost_exactcat_budget_lattice_reflabel_v1"
+          LOOKUP = "lookup_transformer_v1"
+          TREE = "lofo_refdist_lgbm_hist_v1"
+          PRIMARY = "lofo_refdist_lgbm_hist_lookup_v1"
+          DIRECT = "lofo_refdist_lookup_v1"
+          EXTERNAL = "lofo_reflabel_lookup_external_v1"
+          EXPECTED = {
+              TREE: [REFDIST, "lgbm_nocat", "histgb_nocat_long_v1"],
+              PRIMARY: [REFDIST, "lgbm_nocat", "histgb_nocat_long_v1", LOOKUP],
+              DIRECT: [REFDIST, LOOKUP],
+              EXTERNAL: [REFLABEL, LOOKUP],
+          }
+
+
+          def load_metrics(name):
+              return json.loads((ROOT / name / "metrics.json").read_text(encoding="utf-8"))
+
+
+          reference = pd.read_parquet(ROOT / REFDIST / "oof.parquet")
+          reference_test = pd.read_parquet(ROOT / REFDIST / "test.parquet")
+          fold_values = [0, 1, 2, 3, 4]
+          input_auc = {name: float(load_metrics(name)["oof_auc"]) for name in [REFDIST, LOOKUP, REFLABEL]}
+          validated = {}
+
+          for name, components in EXPECTED.items():
+              folder = ROOT / name
+              metrics = load_metrics(name)
+              oof = pd.read_parquet(folder / "oof.parquet")
+              test = pd.read_parquet(folder / "test.parquet")
+              assert metrics["experiment"] == name
               assert metrics["method"] == "lofo_grid"
               assert metrics["lofo_selection"] is True
               assert metrics["in_sample_weight_search"] is False
+              assert metrics["components"] == components
+              assert list(metrics["weight_mean"]) == components
               assert len(metrics["fold_weights"]) == 5
+              assert len(metrics["per_fold_component_deltas"]) == 5
+              assert set(metrics["fold_auc"]) == {str(fold) for fold in fold_values}
+              assert set(metrics["oof_pearson_corr"]) == set(components)
+              assert set(metrics["oof_spearman_corr"]) == set(components)
               assert len(oof) == 691_369 and len(test) == 296_302
+              assert np.array_equal(oof["id"].to_numpy(), reference["id"].to_numpy())
+              assert np.array_equal(test["id"].to_numpy(), reference_test["id"].to_numpy())
+              assert np.array_equal(oof["addicted_label"].to_numpy(), reference["addicted_label"].to_numpy())
+              assert np.array_equal(oof["fold"].to_numpy(), reference["fold"].to_numpy())
               assert oof["id"].is_unique and test["id"].is_unique
-              assert set(oof["fold"].unique()) == {0, 1, 2, 3, 4}
-              assert np.isfinite(oof["pred"]).all() and np.isfinite(test["pred"]).all()
-              print(name, metrics["oof_auc"], metrics["weight_mean"])
+              for predictions in (oof["pred"].to_numpy(), test["pred"].to_numpy()):
+                  assert np.isfinite(predictions).all()
+                  assert ((predictions >= 0.0) & (predictions <= 1.0)).all()
+              recomputed_auc = roc_auc_score(oof["addicted_label"], oof["pred"])
+              assert np.isclose(recomputed_auc, metrics["oof_auc"], rtol=0.0, atol=5e-12)
+              recomputed_folds, weight_rows = {}, []
+              for fold in fold_values:
+                  mask = oof["fold"].to_numpy() == fold
+                  score = roc_auc_score(oof.loc[mask, "addicted_label"], oof.loc[mask, "pred"])
+                  assert np.isclose(score, metrics["fold_auc"][str(fold)], rtol=0.0, atol=5e-12)
+                  recomputed_folds[str(fold)] = float(score)
+                  record = metrics["fold_weights"][fold]
+                  assert record["fold"] == fold
+                  assert list(record["weights"]) == components
+                  weights = np.asarray(list(record["weights"].values()), dtype=float)
+                  assert np.isfinite(weights).all()
+                  assert ((weights >= 0.0) & (weights <= 1.0)).all()
+                  assert np.isclose(weights.sum(), 1.0, rtol=0.0, atol=1e-12)
+                  assert np.allclose(weights * 20.0, np.round(weights * 20.0), atol=1e-12)
+                  weight_rows.append(weights)
+              assert np.allclose(
+                  np.mean(np.vstack(weight_rows), axis=0),
+                  list(metrics["weight_mean"].values()),
+                  rtol=0.0,
+                  atol=1e-12,
+              )
+              for required in (
+                  folder / "oof.npy",
+                  folder / "test.npy",
+                  Path("blend-output/submissions") / f"{name}.csv",
+              ):
+                  assert required.is_file(), required
+              validated[name] = {
+                  "oof_auc": float(recomputed_auc),
+                  "fold_auc": recomputed_folds,
+                  "weight_mean": metrics["weight_mean"],
+              }
+
+          solo_threshold, blend_threshold = 0.00015, 0.00010
+          solo_delta = input_auc[LOOKUP] - input_auc[REFDIST]
+          tree_auc = validated[TREE]["oof_auc"]
+          primary_auc = validated[PRIMARY]["oof_auc"]
+          blend_delta = primary_auc - tree_auc
+          blend_fold_deltas = {
+              str(fold): validated[PRIMARY]["fold_auc"][str(fold)] - validated[TREE]["fold_auc"][str(fold)]
+              for fold in fold_values
+          }
+          positive_blend_folds = sum(delta > 0.0 for delta in blend_fold_deltas.values())
+          solo_gate = solo_delta >= solo_threshold
+          blend_gate = blend_delta >= blend_threshold and positive_blend_folds >= 3
+          lookup_promoted = solo_gate or blend_gate
+          old_honest_blend_auc = 0.9678609761094908
+          external_delta_vs_direct = validated[EXTERNAL]["oof_auc"] - validated[DIRECT]["oof_auc"]
+          promotion = {
+              "lookup_run_id": 32233860783,
+              "lookup_single_auc": input_auc[LOOKUP],
+              "best_target_free_tree_single_auc": input_auc[REFDIST],
+              "solo_delta": solo_delta,
+              "solo_threshold": solo_threshold,
+              "solo_gate_passed": solo_gate,
+              "tree_control": TREE,
+              "primary_target_free_blend": PRIMARY,
+              "tree_control_auc": tree_auc,
+              "primary_target_free_blend_auc": primary_auc,
+              "blend_delta": blend_delta,
+              "blend_threshold": blend_threshold,
+              "blend_fold_deltas": blend_fold_deltas,
+              "positive_blend_folds": positive_blend_folds,
+              "required_positive_blend_folds": 3,
+              "blend_gate_passed": blend_gate,
+              "lookup_promoted": lookup_promoted,
+              "old_honest_blend_auc_reporting_only": old_honest_blend_auc,
+              "primary_delta_vs_old_honest_blend": primary_auc - old_honest_blend_auc,
+              "direct_target_free_blend": DIRECT,
+              "external_supervision_blend": EXTERNAL,
+              "external_delta_vs_direct": external_delta_vs_direct,
+              "external_supervision_excluded_from_primary_gate": True,
+              "reflabel_promoted": False,
+              "no_kaggle_submission_was_made": True,
+              "candidates": validated,
+          }
+          (OUT / "lookup_promotion.json").write_text(json.dumps(promotion, indent=2), encoding="utf-8")
+          workflow_text = Path(".github/workflows/blend-formal-temporary.yml").read_text(encoding="utf-8")
+          forbidden_submit_command = "kaggle competitions " + "submit"
+          forbidden_submit_input = "submit_to_" + "kaggle"
+          assert forbidden_submit_command not in workflow_text
+          assert forbidden_submit_input not in workflow_text
+          print(json.dumps(promotion, indent=2))
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with Path(summary_path).open("a", encoding="utf-8") as summary:
+                  summary.write("## Lookup honest LOFO promotion\n\n")
+                  summary.write(f"- Lookup single delta vs RefDist: `{solo_delta:+.9f}`\n")
+                  summary.write(f"- Primary blend delta vs tree control: `{blend_delta:+.9f}`\n")
+                  summary.write(f"- Positive blend folds: `{positive_blend_folds}/5`\n")
+                  summary.write(f"- Lookup promoted: `{lookup_promoted}`\n")
+                  summary.write("- RefLabel is external supervision and excluded from the primary gate.\n")
+                  summary.write("- No Kaggle leaderboard submission was made.\n")
           PY
 
-      - name: Upload blend artifacts
+      - name: Upload final blend artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: formal-lofo-blends-${{ github.run_id }}
+          name: formal-lookup-lofo-blends-${{ github.run_id }}
           path: |
             blend-input/oof/lofo_*
             blend-output/submissions
+            blend-output/lookup_promotion.json
             experiments/lofo_*.json
           if-no-files-found: error
