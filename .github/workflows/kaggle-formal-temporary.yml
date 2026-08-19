@@ -1,4 +1,4 @@
-name: Kaggle Formal Temporary
+name: Kaggle Formal Lookup Transformer
 
 on:
   pull_request:
@@ -6,13 +6,12 @@ on:
       - ".github/workflows/kaggle-formal-temporary.yml"
 
 concurrency:
-  group: kaggle-formal-s6e8-catboost-exactcat-budget-lattice-reflabel-v1
+  group: kaggle-formal-s6e8-lookup-transformer-v1
   cancel-in-progress: false
 
 jobs:
   train:
-    if: ${{ false }}
-    name: catboost_exactcat_budget_lattice_reflabel_v1
+    name: lookup_transformer_v1
     runs-on: ubuntu-latest
     timeout-minutes: 330
     permissions:
@@ -23,9 +22,9 @@ jobs:
       KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
       S6E8_GIT_COMMIT: ${{ github.sha }}
       S6E8_GIT_REPO: https://github.com/${{ github.repository }}.git
-      INPUT_CONFIG: configs/catboost_exactcat_budget_lattice_reflabel_v1.yaml
+      INPUT_CONFIG: configs/lookup_transformer_v1.yaml
       INPUT_ACCELERATOR: gpu
-      INPUT_KERNEL_SLUG: s6e8-catboost-exactcat-budget-lattice-reflabel-v1
+      INPUT_KERNEL_SLUG: s6e8-lookup-transformer-v1
       INPUT_GPU_SHAPE: NvidiaTeslaT4
     steps:
       - name: Checkout
@@ -59,6 +58,22 @@ jobs:
             --git-repo "$S6E8_GIT_REPO" \
             --gpu-machine-shape "$INPUT_GPU_SHAPE"
 
+      - name: Validate isolated GPU kernel metadata
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          metadata = json.loads(
+              Path(".kernel-staging/kernel-metadata.json").read_text(encoding="utf-8")
+          )
+          assert metadata["dataset_sources"] == []
+          assert metadata["competition_sources"] == ["playground-series-s6e8"]
+          assert metadata["enable_gpu"] is True
+          assert metadata["enable_tpu"] is False
+          assert metadata["machine_shape"] == "NvidiaTeslaT4"
+          PY
+
       - name: Push kernel to Kaggle
         id: push
         working-directory: .kernel-staging
@@ -85,7 +100,7 @@ jobs:
 
       - name: Validate formal artifacts
         env:
-          EXPERIMENT: catboost_exactcat_budget_lattice_reflabel_v1
+          EXPERIMENT: lookup_transformer_v1
         run: |
           python - <<'PY'
           import json
@@ -94,10 +109,45 @@ jobs:
 
           import numpy as np
           import pandas as pd
+          import yaml
+
+          def assert_predictor_only(value, path="provenance"):
+              forbidden = ("target", "label")
+              if isinstance(value, dict):
+                  for key, nested in value.items():
+                      location = f"{path}.{key}"
+                      assert not any(word in str(key).casefold() for word in forbidden), location
+                      assert_predictor_only(nested, location)
+              elif isinstance(value, (list, tuple)):
+                  for index, nested in enumerate(value):
+                      assert_predictor_only(nested, f"{path}.{index}")
+              elif isinstance(value, str):
+                  assert not any(word in value.casefold() for word in forbidden), path
 
           exp = os.environ["EXPERIMENT"]
+          config = yaml.safe_load(
+              Path(os.environ["INPUT_CONFIG"]).read_text(encoding="utf-8")
+          )
+          assert config["experiment"]["name"] == exp
+          assert config["model"]["name"] == "lookup_transformer"
+          assert config["runtime"]["accelerator"] == "gpu"
+          assert config["external_reference"]["enabled"] is False
+          expected_lookup = config["model"]["lookup_columns"]
+          expected_numeric = config["model"]["numeric_token_columns"]
+          expected_decimals = config["model"]["decimal_places"]
+          forbidden_columns = {
+              config["competition"]["id_col"],
+              config["competition"]["target"],
+          }
+          assert expected_numeric[:len(expected_lookup)] == expected_lookup
+          assert forbidden_columns.isdisjoint(expected_lookup)
+          assert forbidden_columns.isdisjoint(expected_numeric)
+
           root = Path("artifacts/kaggle-output/oof") / exp
           metrics = json.loads((root / "metrics.json").read_text(encoding="utf-8"))
+          experiment = json.loads(
+              (root / "experiment.json").read_text(encoding="utf-8")
+          )
           oof = pd.read_parquet(root / "oof_predictions.parquet")
           test = pd.read_parquet(root / "test_predictions.parquet")
           assert len(oof) == metrics["n_train"] == 691_369
@@ -108,48 +158,74 @@ jobs:
           assert np.isfinite(oof["pred"]).all() and np.isfinite(test["pred"]).all()
           assert metrics["n_splits"] == 5
           assert metrics["git_commit"] == os.environ["S6E8_GIT_COMMIT"]
-          assert metrics["dependency_versions"]["catboost"]
+          assert experiment["git_commit"] == os.environ["S6E8_GIT_COMMIT"]
+          assert metrics["backend"] == "lookup_transformer"
+          assert metrics["model_name"] == "lookup_transformer"
+          assert metrics["n_features"] == len(expected_numeric)
+          assert metrics["feature_names"] == expected_numeric
+          assert metrics["n_categorical_features"] == 0
+          assert metrics["categorical_feature_names"] == []
+
+          dependencies = metrics["dependency_versions"]
+          assert isinstance(dependencies.get("torch"), str)
+          assert dependencies["torch"].strip()
+          assert "lookup_transformer" not in dependencies
+          assert "lookup" not in dependencies
+          assert experiment["dependency_versions"] == dependencies
+
+          preprocessing = metrics["preprocessing_provenance"]
           provenance = metrics["data_provenance"]
-          expected_filename = "Smartphone_Usage_And_Addiction_Analysis_7500_Rows.csv"
-          expected_legacy = (
-              "/kaggle/input/smartphone-usage-and-addiction-prediction/"
-              + expected_filename
+          assert preprocessing["transductive_predictor_preprocessing"] is True
+          assert provenance == {"lookup_preprocessing": preprocessing}
+          assert experiment["preprocessing_provenance"] == preprocessing
+          assert experiment["data_provenance"] == provenance
+          assert preprocessing["lookup_columns"] == expected_lookup
+          assert preprocessing["numeric_columns"] == expected_numeric
+          assert preprocessing["decimal_places"] == expected_decimals
+          assert len(preprocessing["lookup_cardinalities"]) == len(expected_lookup)
+          assert all(
+              isinstance(size, int) and size >= 2
+              for size in preprocessing["lookup_cardinalities"]
           )
-          expected_typed = (
-              "/kaggle/input/datasets/jayjoshi37/"
-              "smartphone-usage-and-addiction-prediction/"
-              + expected_filename
-          )
-          assert provenance["sha256"] == (
-              "2194ce1946e8559f26780049c8d972857d8378104f2c9ec25ed9ec35409f1074"
-          )
-          assert provenance["configured_path"] == expected_legacy
-          assert provenance["path"] in {expected_legacy, expected_typed}
-          assert provenance["dataset_source"] == (
-              "jayjoshi37/smartphone-usage-and-addiction-prediction"
-          )
-          assert provenance["source_url"] == (
-              "https://www.kaggle.com/datasets/jayjoshi37/"
-              "smartphone-usage-and-addiction-prediction"
-          )
-          assert provenance["mode"] == "label_aware"
-          assert provenance["external_supervision"] is True
-          assert provenance["target_column"] == "addicted_label"
-          assert provenance["raw_rows"] == 7_500
-          assert provenance["unique_rows"] == 7_500
-          assert provenance["duplicate_rows_removed"] == 0
-          assert 0 <= provenance["query_overlap_rows_removed"] <= 7_500
-          assert (
-              provenance["unique_rows"]
-              - provenance["query_overlap_rows_removed"]
-              == provenance["retained_rows"]
-          )
+          assert set(preprocessing["numeric_medians"]) == set(expected_numeric)
+          assert set(preprocessing["numeric_scales"]) == set(expected_numeric)
+          assert all(np.isfinite(list(preprocessing["numeric_medians"].values())))
+          assert all(np.isfinite(list(preprocessing["numeric_scales"].values())))
+          assert_predictor_only(preprocessing)
+          assert_predictor_only(provenance, "data_provenance")
+
+          resolved = experiment["resolved_config"]
+          assert resolved["model"]["lookup_columns"] == expected_lookup
+          assert resolved["model"]["numeric_token_columns"] == expected_numeric
+          assert resolved["external_reference"]["enabled"] is False
+
+          fold_scores = metrics["fold_scores"]
+          best_iterations = metrics["best_iterations"]
+          diagnostics = metrics["fold_diagnostics"]
+          max_epochs = int(config["model"]["params"]["epochs"])
+          assert len(fold_scores) == len(best_iterations) == len(diagnostics) == 5
+          assert np.isfinite(fold_scores).all()
+          assert {record["fold"] for record in diagnostics} == {0, 1, 2, 3, 4}
+          by_fold = sorted(diagnostics, key=lambda record: record["fold"])
+          assert experiment["fold_diagnostics"] == diagnostics
+          for fold, record in enumerate(by_fold):
+              assert record["seed"] == config["experiment"]["seed"] + fold
+              assert record["best_epoch"] == best_iterations[fold]
+              assert isinstance(record["best_epoch"], int)
+              assert 1 <= record["best_epoch"] <= record["epochs_trained"] <= max_epochs
+              assert np.isfinite(record["best_auc"])
+              assert np.isfinite(record["auc"])
+              assert record["training_rows"] + record["validation_rows"] == 691_369
+              assert record["test_rows"] == 296_302
+
           print(json.dumps({
               "experiment": exp,
               "oof_auc": metrics["oof_auc"],
               "fold_scores": metrics["fold_scores"],
               "git_commit": metrics["git_commit"],
-              "data_provenance": provenance,
+              "torch": dependencies["torch"],
+              "best_iterations": best_iterations,
+              "preprocessing_provenance": preprocessing,
           }, indent=2))
           PY
 
@@ -169,7 +245,7 @@ jobs:
         if: always() && steps.download.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: kaggle-formal-catboost_exactcat_budget_lattice_reflabel_v1-${{ github.run_id }}
+          name: kaggle-formal-lookup_transformer_v1-${{ github.run_id }}
           path: artifacts/kaggle-output
           if-no-files-found: error
 
