@@ -1,0 +1,137 @@
+experiment:
+  name: catboost_exactcat_budget_lattice_refdist_v1
+  seed: 42
+  data_version: v1
+  feature_version: catboost_structural_v1
+  model_version: catboost_v1
+  formal: true
+  validation_protocol: fixed5_seed42_v1
+  hypothesis: External source distributions add target-free scale context to the promoted lattice parent.
+  change: Add leakage-filtered target-free external reference features after exact, budget, and lattice blocks.
+
+runtime:
+  accelerator: gpu
+  enable_internet: true
+
+competition:
+  slug: playground-series-s6e8
+  task: binary_classification
+  target: addicted_label
+  id_col: id
+  metric: roc_auc
+  positive_class: 1
+
+paths:
+  train: data/raw/train.csv
+  test: data/raw/test.csv
+  sample_submission: data/raw/sample_submission.csv
+  oof_dir: oof
+  submission_dir: submissions
+
+cv:
+  type: stratified
+  n_splits: 5
+  shuffle: true
+
+features:
+  numeric:
+    - age
+    - daily_screen_time_hours
+    - social_media_hours
+    - gaming_hours
+    - work_study_hours
+    - sleep_hours
+    - notifications_per_day
+    - app_opens_per_day
+    - weekend_screen_time
+  categorical:
+    - gender
+    - stress_level
+    - academic_work_impact
+  engineering:
+    add_n_missing: false
+    add_missing_indicators: false
+    add_leisure_hours: false
+    add_screen_sleep_ratio: false
+    add_weekend_weekday_ratio: false
+    add_notif_per_open: false
+    ratio_eps: 1.0e-6
+  exact_categorical:
+    enabled: true
+    columns: auto_numeric
+    suffix: __exact
+    missing_token: __MISSING__
+    decimal_places:
+      age: 0
+      daily_screen_time_hours: 2
+      social_media_hours: 2
+      gaming_hours: 2
+      work_study_hours: 2
+      sleep_hours: 2
+      notifications_per_day: 0
+      app_opens_per_day: 0
+      weekend_screen_time: 2
+  screen_budget:
+    enabled: true
+    tolerance: 1.0e-9
+  decimal_lattice:
+    enabled: true
+    columns:
+      - daily_screen_time_hours
+      - social_media_hours
+      - gaming_hours
+      - work_study_hours
+      - sleep_hours
+      - weekend_screen_time
+
+external_reference:
+  enabled: true
+  path: /kaggle/input/smartphone-usage-and-addiction-prediction/Smartphone_Usage_And_Addiction_Analysis_7500_Rows.csv
+  dataset_source: jayjoshi37/smartphone-usage-and-addiction-prediction
+  source_url: https://www.kaggle.com/datasets/jayjoshi37/smartphone-usage-and-addiction-prediction
+  mode: distribution
+  predictor_columns:
+    - age
+    - gender
+    - daily_screen_time_hours
+    - social_media_hours
+    - gaming_hours
+    - work_study_hours
+    - sleep_hours
+    - notifications_per_day
+    - app_opens_per_day
+    - weekend_screen_time
+    - stress_level
+    - academic_work_impact
+  cdf_columns:
+    - daily_screen_time_hours
+    - weekend_screen_time
+    - social_media_hours
+  distance_columns:
+    - daily_screen_time_hours
+    - weekend_screen_time
+    - social_media_hours
+    - notifications_per_day
+    - app_opens_per_day
+  frequency_columns: []
+  remove_query_overlaps: true
+
+model:
+  name: catboost
+  num_boost_round: 6000
+  early_stopping_rounds: 200
+  log_evaluation: 100
+  params:
+    learning_rate: 0.05
+    depth: 8
+    l2_leaf_reg: 6.0
+    one_hot_max_size: 4
+    max_ctr_complexity: 2
+    random_strength: 1.0
+    allow_writing_files: false
+
+output:
+  save_oof: true
+  save_test: true
+  save_submission: true
+  dtype: float64
