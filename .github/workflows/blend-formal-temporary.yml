@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   blend:
+    if: ${{ false }}
     name: honest-lofo-blends
     runs-on: ubuntu-latest
     timeout-minutes: 120
