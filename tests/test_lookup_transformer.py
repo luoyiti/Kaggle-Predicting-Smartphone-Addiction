@@ -73,6 +73,37 @@ def test_lookup_preprocessor_reserves_missing_and_oov_ids():
     assert pre.lookup_cardinalities == [4]
 
 
+def test_lookup_preprocessor_handles_read_only_pandas_integer_arrays(monkeypatch):
+    """Regression: pandas may return a read-only mapped integer array."""
+    train = pd.DataFrame({"grid_value": [10.0, np.nan]})
+    test = pd.DataFrame({"grid_value": [20.0]})
+    pre = LookupPreprocessor(
+        lookup_columns=["grid_value"],
+        numeric_columns=["grid_value"],
+        decimal_places={"grid_value": 0},
+    ).fit(train, test)
+    original_to_numpy = pd.Series.to_numpy
+
+    def readonly_when_copy_not_requested(series, *args, **kwargs):
+        array = original_to_numpy(series, *args, **kwargs)
+        dtype = kwargs.get("dtype", args[0] if args else None)
+        if dtype is not None and np.dtype(dtype) == np.dtype(np.int64):
+            if not kwargs.get("copy", False):
+                array.setflags(write=False)
+        return array
+
+    monkeypatch.setattr(pd.Series, "to_numpy", readonly_when_copy_not_requested)
+
+    transformed = pre.transform(
+        pd.DataFrame({"grid_value": [10.0, np.nan, 30.0]})
+    )
+
+    assert transformed.lookup_ids[:, 0].tolist() == [2, 0, 1]
+    assert transformed.lookup_ids.dtype == np.int64
+    assert transformed.lookup_ids.flags.owndata
+    assert transformed.lookup_ids.flags.writeable
+
+
 def test_lookup_preprocessor_provenance_is_serializable_and_target_free():
     train = pd.DataFrame(
         {

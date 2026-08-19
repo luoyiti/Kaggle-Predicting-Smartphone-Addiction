@@ -117,7 +117,7 @@ class LookupPreprocessor:
                 )
             )
             ids = canonical.map(self.value_to_id[column]).fillna(1).to_numpy(
-                dtype=np.int64
+                dtype=np.int64, copy=True
             )
             ids[missing] = 0
             lookup_ids[:, index] = ids
