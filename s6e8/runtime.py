@@ -46,6 +46,8 @@ _BACKEND_DISTRIBUTIONS = {
     "logreg": "scikit-learn",
     "logistic": "scikit-learn",
     "logisticregression": "scikit-learn",
+    "lookup_transformer": "torch",
+    "lookup": "torch",
 }
 
 
