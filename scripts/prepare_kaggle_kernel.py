@@ -16,6 +16,7 @@ import sys
 import tarfile
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -113,6 +114,22 @@ def write_runner(staging: Path, context: dict, archive: bytes) -> None:
     (staging / "runner.py").write_text(template.replace(marker, generated, 1), encoding="utf-8")
 
 
+def configured_dataset_sources(config: dict[str, Any]) -> list[str]:
+    """Return the configured Kaggle dataset slug for enabled reference features."""
+    block = config.get("external_reference") or {}
+    if not isinstance(block, dict):
+        raise ValueError("external_reference must be a mapping when configured")
+    if not bool(block.get("enabled", False)):
+        return []
+    source = str(block.get("dataset_source", "")).strip()
+    if source.count("/") != 1:
+        raise ValueError("external_reference.dataset_source must be owner/dataset")
+    owner, dataset = source.split("/", 1)
+    if not owner or not dataset or any(part.strip() != part for part in (owner, dataset)):
+        raise ValueError("external_reference.dataset_source must be owner/dataset")
+    return [source]
+
+
 def write_metadata(
     staging: Path,
     *,
@@ -122,6 +139,7 @@ def write_metadata(
     accelerator: str,
     enable_internet: bool,
     competition_slug: str,
+    dataset_sources: list[str],
     gpu_machine_shape: str,
 ) -> dict:
     if not username:
@@ -141,7 +159,7 @@ def write_metadata(
         "enable_tpu": False,
         "enable_internet": bool(enable_internet),
         "machine_shape": gpu_machine_shape if enable_gpu else "",
-        "dataset_sources": [],
+        "dataset_sources": dataset_sources,
         "competition_sources": [competition_slug],
         "kernel_sources": [],
         "model_sources": [],
@@ -159,6 +177,7 @@ def main() -> None:
     accelerator = normalize_accelerator(config["runtime"]["accelerator"])
     enable_internet = bool((config.get("runtime") or {}).get("enable_internet", True))
     competition_slug = config["competition"]["slug"]
+    dataset_sources = configured_dataset_sources(config)
 
     rel_config = args.config
     config_path = Path(args.config)
@@ -197,6 +216,7 @@ def main() -> None:
         accelerator=accelerator,
         enable_internet=enable_internet,
         competition_slug=competition_slug,
+        dataset_sources=dataset_sources,
         gpu_machine_shape=args.gpu_machine_shape,
     )
 

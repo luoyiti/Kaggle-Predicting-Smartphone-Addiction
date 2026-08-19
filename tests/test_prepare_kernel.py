@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import re
 import subprocess
 import sys
+
+import pytest
+
+
+def load_prepare_kernel(repo_root):
+    path = repo_root / "scripts" / "prepare_kaggle_kernel.py"
+    spec = importlib.util.spec_from_file_location("prepare_kaggle_kernel_test", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_prepare_kernel_staging(tmp_path, repo_root):
@@ -41,6 +53,46 @@ def test_prepare_kernel_staging(tmp_path, repo_root):
     assert (staging / "source.tar.gz").stat().st_size > 0
     assert max(len(line) for line in runner.splitlines()) < 200
     compile(runner, str(staging / "runner.py"), "exec")
+
+
+def test_prepare_kernel_attaches_enabled_external_reference_dataset(tmp_path, repo_root):
+    staging = tmp_path / "kernel-reference"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "prepare_kaggle_kernel.py"),
+            "--config",
+            "configs/catboost_exactcat_budget_refdist_v1.yaml",
+            "--accelerator",
+            "gpu",
+            "--username",
+            "testuser",
+            "--out",
+            str(staging),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    assert proc.returncode == 0
+    meta = json.loads((staging / "kernel-metadata.json").read_text(encoding="utf-8"))
+    assert meta["dataset_sources"] == [
+        "jayjoshi37/smartphone-usage-and-addiction-prediction"
+    ]
+    assert meta["competition_sources"] == ["playground-series-s6e8"]
+
+
+def test_configured_dataset_sources_accepts_only_enabled_owner_dataset_slugs(repo_root):
+    prepare = load_prepare_kernel(repo_root)
+    assert prepare.configured_dataset_sources({}) == []
+    assert prepare.configured_dataset_sources(
+        {"external_reference": {"enabled": False, "dataset_source": "owner/dataset"}}
+    ) == []
+    with pytest.raises(ValueError, match="owner/dataset"):
+        prepare.configured_dataset_sources(
+            {"external_reference": {"enabled": True, "dataset_source": "not-a-slug"}}
+        )
 
 
 def test_prepare_kernel_gpu_metadata(tmp_path, repo_root):

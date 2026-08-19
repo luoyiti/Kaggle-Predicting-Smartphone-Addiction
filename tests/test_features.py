@@ -7,7 +7,12 @@ import pandas as pd
 import yaml
 
 from s6e8.data import load_config
-from s6e8.features import add_engineered_features, feature_columns, transform
+from s6e8.features import (
+    add_engineered_features,
+    categorical_feature_columns,
+    feature_columns,
+    transform,
+)
 
 
 def _frame() -> pd.DataFrame:
@@ -108,3 +113,17 @@ def test_drop_removes_columns(tmp_path):
     assert "gender" not in cols
     assert "n_missing" not in cols
     assert "daily_screen_time_hours" in cols
+
+
+def test_transform_adds_exact_categories_and_casts_generated_columns(tmp_path):
+    config = _config(tmp_path, {"add_n_missing": False})
+    config["features"]["exact_categorical"] = {
+        "enabled": True,
+        "columns": ["age"],
+        "suffix": "__exact",
+        "decimal_places": {"age": 0},
+    }
+    out = transform(_frame(), config)
+    assert str(out["age__exact"].dtype) == "category"
+    assert out["age__exact"].tolist() == ["age=20", "age=25", "age=30", "age=18"]
+    assert "age__exact" in categorical_feature_columns(out, config)

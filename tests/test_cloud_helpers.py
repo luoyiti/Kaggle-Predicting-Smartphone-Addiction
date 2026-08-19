@@ -1,9 +1,93 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 from pathlib import Path
 
 from scripts_loader import load_script
+
+
+def load_runner(repo_root: Path):
+    path = repo_root / "kaggle" / "runner.py"
+    spec = importlib.util.spec_from_file_location("kaggle_runner_cloud_helpers", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_optional_requirement_for_catboost(repo_root):
+    runner = load_runner(repo_root)
+    assert runner.optional_requirements({"model": {"name": "catboost"}}) == [
+        ("catboost", "catboost>=1.2.8,<2")
+    ]
+
+
+def test_optional_requirement_for_lightgbm_is_empty(repo_root):
+    runner = load_runner(repo_root)
+    assert runner.optional_requirements({"model": {"name": "lightgbm"}}) == []
+
+
+def test_maybe_install_requirements_installs_only_missing_backend_package(tmp_path, repo_root, monkeypatch):
+    runner = load_runner(repo_root)
+    (tmp_path / "requirements.txt").write_text("pandas>=2.1\n", encoding="utf-8")
+    config = tmp_path / "configs" / "catboost.yaml"
+    config.parent.mkdir()
+    config.write_text("model:\n  name: catboost\n", encoding="utf-8")
+    ctx = {"config": "configs/catboost.yaml"}
+    installed: list[list[str]] = []
+
+    monkeypatch.setattr(runner, "ensure_core_requirements", lambda root: None)
+    monkeypatch.setattr(
+        runner.importlib.util,
+        "find_spec",
+        lambda name: None if name == "catboost" else object(),
+    )
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        lambda cmd, check=True: installed.append(cmd),
+    )
+
+    runner.maybe_install_requirements(tmp_path, ctx)
+    assert installed == [
+        [
+            runner.sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "-q",
+            "catboost>=1.2.8,<2",
+        ]
+    ]
+
+
+def test_maybe_install_requirements_skips_present_backend_package(tmp_path, repo_root, monkeypatch):
+    runner = load_runner(repo_root)
+    (tmp_path / "requirements.txt").write_text("pandas>=2.1\n", encoding="utf-8")
+    config = tmp_path / "configs" / "catboost.yaml"
+    config.parent.mkdir()
+    config.write_text("model:\n  name: catboost\n", encoding="utf-8")
+    installed: list[list[str]] = []
+
+    monkeypatch.setattr(runner, "ensure_core_requirements", lambda root: None)
+    monkeypatch.setattr(runner.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(
+        runner.subprocess,
+        "run",
+        lambda cmd, check=True: installed.append(cmd),
+    )
+
+    runner.maybe_install_requirements(tmp_path, {"config": "configs/catboost.yaml"})
+    assert installed == []
+
+
+def test_kaggle_workflow_cannot_submit_to_leaderboard(repo_root):
+    workflow_text = (repo_root / ".github" / "workflows" / "kaggle-train.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "submit_to_kaggle" not in workflow_text
+    assert "kaggle competitions submit" not in workflow_text
 
 
 def test_legacy_json_token(tmp_path, monkeypatch):

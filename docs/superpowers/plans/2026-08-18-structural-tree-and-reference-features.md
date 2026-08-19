@@ -905,7 +905,7 @@ git commit -m "Add honest fold-wise blend evaluation"
 - Modify: `tests/test_prepare_kernel.py`
 
 **Interfaces:**
-- Consumes: selected config path, `model.name`, and `features.external_reference.dataset_source`.
+- Consumes: selected config path, `model.name`, and top-level `external_reference.dataset_source`.
 - Produces: required optional packages and Kaggle `dataset_sources` metadata.
 
 - [ ] **Step 1: Write failing optional-dependency tests**
@@ -958,7 +958,7 @@ Expected: PASS.
 Extend the existing metadata test in `tests/test_prepare_kernel.py` with a config containing:
 
 ```python
-config["features"]["external_reference"] = {
+config["external_reference"] = {
     "enabled": True,
     "dataset_source": "jayjoshi37/smartphone-usage-and-addiction-prediction",
 }
@@ -978,7 +978,7 @@ Add:
 
 ```python
 def configured_dataset_sources(config: dict[str, Any]) -> list[str]:
-    block = config["features"].get("external_reference") or {}
+    block = config.get("external_reference") or {}
     if not bool(block.get("enabled", False)):
         return []
     source = str(block.get("dataset_source", "")).strip()

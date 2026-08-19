@@ -20,7 +20,12 @@ from s6e8.models.train import (
     stratified_subsample,
     train_cv,
 )
-from s6e8.runtime import apply_runtime_override, detect_environment, get_git_commit
+from s6e8.runtime import (
+    apply_runtime_override,
+    detect_environment,
+    get_git_commit,
+    validate_config,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -65,6 +70,7 @@ def main() -> None:
         max_train_rows=args.max_train_rows,
         n_splits=args.n_splits,
     )
+    validate_config(config)
 
     print(f"experiment={config['experiment']['name']}")
     print(f"config={config['_config_path']}")

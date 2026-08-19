@@ -76,12 +76,16 @@ features:
   decimal_lattice:
     enabled: false
     columns: []
-  external_reference:
-    enabled: false
-    path: /kaggle/input/.../Smartphone_Usage_And_Addiction_Analysis_7500_Rows.csv
-    mode: distribution
-    remove_query_overlaps: true
+external_reference:
+  enabled: false
+  path: /kaggle/input/.../Smartphone_Usage_And_Addiction_Analysis_7500_Rows.csv
+  mode: distribution
+  remove_query_overlaps: true
 ```
+
+`external_reference` is top-level because it controls an attached data source
+and its provenance as well as the derived feature block. Row-local feature
+families remain nested under `features`.
 
 Formal experiment configs must repeat the fixed validation seed and folds. A
 config validator will reject formal configs that change those values.

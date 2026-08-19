@@ -8,7 +8,6 @@ import random
 from pathlib import Path
 from typing import Any, Callable
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
@@ -16,9 +15,11 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 
 from s6e8 import __version__ as package_version
 from s6e8.data import PROJECT_ROOT, load_sample_submission, resolve_path
-from s6e8.features import feature_columns, transform
+from s6e8.features import categorical_feature_columns, feature_columns, transform
+from s6e8.reference_features import apply_external_reference_features
 from s6e8.runtime import (
     apply_model_device,
+    dependency_versions,
     experiment_summary,
     get_accelerator,
     get_git_commit,
@@ -139,6 +140,9 @@ def apply_diagnostic_overrides(
         diagnostic = True
 
     if diagnostic:
+        if bool(experiment.get("formal", False)):
+            experiment["source_formal"] = True
+            experiment["formal"] = False
         experiment["diagnostic"] = True
         name = str(experiment["name"])
         rows = runtime.get("max_train_rows")
@@ -169,12 +173,21 @@ def _prepare_xy(
     test_df: pd.DataFrame,
     y: pd.Series,
     config: dict[str, Any],
-) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, list[str], list[str]]:
+) -> tuple[
+    pd.DataFrame, pd.DataFrame, np.ndarray, list[str], list[str], dict[str, Any]
+]:
     train_feat = transform(train_df, config)
     test_feat = transform(test_df, config)
+    train_feat, test_feat, data_provenance = apply_external_reference_features(
+        train_feat, test_feat, config
+    )
+    if list(train_feat.columns) != list(test_feat.columns):
+        raise ValueError("Train and test feature schemas must match before selection")
     cols = feature_columns(train_feat, config)
-    cat_cols = [c for c in config["features"]["categorical"] if c in cols]
-    return train_feat[cols], test_feat[cols], y.to_numpy(), cols, cat_cols
+    cat_cols = [
+        c for c in categorical_feature_columns(train_feat, config) if c in cols
+    ]
+    return train_feat[cols], test_feat[cols], y.to_numpy(), cols, cat_cols, data_provenance
 
 
 def _run_cv(
@@ -186,7 +199,9 @@ def _run_cv(
 ) -> dict[str, Any]:
     seed = int(config["experiment"]["seed"])
     set_seed(seed)
-    X, X_test, y_np, cols, cat_cols = _prepare_xy(train_df, test_df, y, config)
+    X, X_test, y_np, cols, cat_cols, data_provenance = _prepare_xy(
+        train_df, test_df, y, config
+    )
     te_cfg = parse_exact_te_config(config)
     cv_cfg = config["cv"]
     splitter = StratifiedKFold(
@@ -197,6 +212,7 @@ def _run_cv(
     dtype = _float_dtype(config)
     oof = np.zeros(len(X), dtype=dtype)
     test_pred = np.zeros(len(X_test), dtype=dtype)
+    fold_ids = np.full(len(X), -1, dtype=np.int16)
     fold_scores: list[float] = []
     best_iterations: list[int] = []
     te_fold_stats: list[dict[str, Any]] = []
@@ -209,6 +225,7 @@ def _run_cv(
         "seed": seed,
         "accelerator": get_accelerator(config),
         "feature_importances": feature_importances,
+        "data_provenance": data_provenance,
     }
     te_note = ""
     if te_cfg is not None:
@@ -218,7 +235,9 @@ def _run_cv(
         f"accelerator={ctx['accelerator']} n_raw_features={len(cols)}{te_note}"
     )
 
-    for fold, (tr_idx, va_idx) in enumerate(splitter.split(X, y_np), start=1):
+    for fold, (tr_idx, va_idx) in enumerate(splitter.split(X, y_np)):
+        display_fold = fold + 1
+        fold_ids[va_idx] = fold
         X_tr, X_va = X.iloc[tr_idx], X.iloc[va_idx]
         y_tr, y_va = y_np[tr_idx], y_np[va_idx]
         X_te = X_test
@@ -232,7 +251,7 @@ def _run_cv(
             n_unseen = sum(int(v["n_val_unseen"]) for v in te_stats["columns"].values())
             n_rare = sum(int(v["n_val_rare"]) for v in te_stats["columns"].values())
             print(
-                f"[fold {fold}] n_features={len(feature_names)} "
+                f"[fold {display_fold}] n_features={len(feature_names)} "
                 f"te_unseen={n_unseen} te_rare={n_rare}"
             )
         va_pred, te_pred, best_iter = fold_fn(X_tr, y_tr, X_va, y_va, X_te, ctx)
@@ -241,7 +260,10 @@ def _run_cv(
         auc = float(roc_auc_score(y_va, va_pred))
         fold_scores.append(auc)
         best_iterations.append(int(best_iter))
-        print(f"[fold {fold}] AUC={auc:.6f} best_iter={best_iter}")
+        print(f"[fold {display_fold}] AUC={auc:.6f} best_iter={best_iter}")
+
+    if np.any(fold_ids < 0):
+        raise RuntimeError("Every training row must receive exactly one validation fold")
 
     cv_mean = float(np.mean(fold_scores))
     cv_std = float(np.std(fold_scores))
@@ -250,7 +272,10 @@ def _run_cv(
     return {
         "oof": oof,
         "test_pred": test_pred,
+        "fold_ids": fold_ids,
         "feature_names": feature_names,
+        "cat_cols": cat_cols,
+        "data_provenance": data_provenance,
         "fold_scores": fold_scores,
         "best_iterations": best_iterations,
         "cv_mean": cv_mean,
@@ -284,6 +309,11 @@ def train_cv(
 
 
 def _fold_lightgbm(X_tr, y_tr, X_va, y_va, X_test, ctx):
+    try:
+        import lightgbm as lgb
+    except ImportError as exc:
+        raise ImportError("Install lightgbm to use model.name: lightgbm") from exc
+
     model_cfg = ctx["config"]["model"]
     params = apply_model_device(
         dict(model_cfg["params"]), model_cfg["name"], ctx["accelerator"]
@@ -395,6 +425,15 @@ def _fold_catboost(X_tr, y_tr, X_va, y_va, X_test, ctx):
     best_iter = int(model.get_best_iteration() or 0)
     va_pred = model.predict_proba(X_va_c)[:, 1]
     te_pred = model.predict_proba(X_te_c)[:, 1]
+    importance = model.get_feature_importance()
+    ctx.setdefault("feature_importances", []).append(
+        {
+            "gain": {
+                name: float(value)
+                for name, value in zip(X_tr.columns, importance)
+            }
+        }
+    )
     return va_pred, te_pred, best_iter
 
 
@@ -520,28 +559,34 @@ def save_artifacts(
         oof_npy = oof_dir / "oof.npy"
         np.save(oof_npy, artifacts["oof"])
         oof_pq = oof_dir / "oof.parquet"
-        pd.DataFrame(
+        oof_predictions_pq = oof_dir / "oof_predictions.parquet"
+        oof_frame = pd.DataFrame(
             {
                 id_col: artifacts["train_ids"],
                 target: artifacts["y"],
                 "pred": artifacts["oof"],
+                "fold": artifacts["fold_ids"],
             }
-        ).to_parquet(oof_pq, index=False)
+        )
+        oof_frame.to_parquet(oof_pq, index=False)
+        oof_frame.to_parquet(oof_predictions_pq, index=False)
         written["oof_npy"] = _relpath(oof_npy)
         written["oof_parquet"] = _relpath(oof_pq)
+        written["oof_predictions"] = _relpath(oof_predictions_pq)
 
     if output_cfg.get("save_test", True):
         test_npy = oof_dir / "test.npy"
         np.save(test_npy, artifacts["test_pred"])
         test_pq = oof_dir / "test.parquet"
-        pd.DataFrame(
-            {
-                id_col: artifacts["test_ids"],
-                "pred": artifacts["test_pred"],
-            }
-        ).to_parquet(test_pq, index=False)
+        test_predictions_pq = oof_dir / "test_predictions.parquet"
+        test_frame = pd.DataFrame(
+            {id_col: artifacts["test_ids"], "pred": artifacts["test_pred"]}
+        )
+        test_frame.to_parquet(test_pq, index=False)
+        test_frame.to_parquet(test_predictions_pq, index=False)
         written["test_npy"] = _relpath(test_npy)
         written["test_parquet"] = _relpath(test_pq)
+        written["test_predictions"] = _relpath(test_predictions_pq)
 
     git_commit = artifacts.get("git_commit", get_git_commit())
     runtime_seconds = artifacts.get("runtime_seconds")
@@ -561,18 +606,26 @@ def save_artifacts(
         git_commit=git_commit,
         extra=extra,
     )
+    backend = artifacts.get("backend") or resolve_backend(config)
+    versions = dependency_versions(backend)
     metrics = {
         **summary,
         "package_version": package_version,
-        "lightgbm_version": lgb.__version__,
+        "lightgbm_version": versions["lightgbm"],
+        "dependency_versions": versions,
         "metric": config["competition"]["metric"],
         "cv_mean": artifacts["cv_mean"],
         "cv_std": artifacts["cv_std"],
         "oof_auc": artifacts["oof_auc"],
         "fold_scores": artifacts["fold_scores"],
+        "fold_auc_min": float(min(artifacts["fold_scores"])),
+        "fold_auc_max": float(max(artifacts["fold_scores"])),
         "best_iterations": artifacts["best_iterations"],
         "n_features": len(artifacts["feature_names"]),
         "feature_names": artifacts["feature_names"],
+        "n_categorical_features": len(artifacts.get("cat_cols") or []),
+        "categorical_feature_names": artifacts.get("cat_cols") or [],
+        "data_provenance": artifacts.get("data_provenance") or {},
         "n_train": int(len(artifacts["oof"])),
         "n_test": int(len(artifacts["test_pred"])),
         "n_splits": int(config["cv"]["n_splits"]),
@@ -593,7 +646,18 @@ def save_artifacts(
     written["metrics"] = _relpath(metrics_path)
 
     experiment_path = oof_dir / "experiment.json"
-    experiment_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    resolved_config = {k: v for k, v in config.items() if k != "_config_path"}
+    experiment_payload = {
+        **summary,
+        "dependency_versions": versions,
+        "resolved_config": resolved_config,
+        "feature_names": artifacts["feature_names"],
+        "categorical_feature_names": artifacts.get("cat_cols") or [],
+        "data_provenance": artifacts.get("data_provenance") or {},
+    }
+    experiment_path.write_text(
+        json.dumps(experiment_payload, indent=2), encoding="utf-8"
+    )
     written["experiment"] = _relpath(experiment_path)
 
     is_diagnostic = bool(config["experiment"].get("diagnostic", False))

@@ -21,11 +21,6 @@ on:
         required: false
         default: s6e8-cloud-train
         type: string
-      submit_to_kaggle:
-        description: "Submit the generated CSV to the competition leaderboard"
-        required: false
-        default: false
-        type: boolean
       gpu_machine_shape:
         description: "Kaggle GPU machine_shape (ignored for CPU)"
         required: false
@@ -52,7 +47,6 @@ jobs:
       INPUT_CONFIG: ${{ github.event.inputs.config }}
       INPUT_ACCELERATOR: ${{ github.event.inputs.accelerator }}
       INPUT_KERNEL_SLUG: ${{ github.event.inputs.kernel_slug }}
-      INPUT_SUBMIT: ${{ github.event.inputs.submit_to_kaggle }}
       INPUT_GPU_SHAPE: ${{ github.event.inputs.gpu_machine_shape }}
     steps:
       - name: Checkout
@@ -161,28 +155,6 @@ jobs:
           name: kaggle-${{ steps.prepare.outputs.experiment || 'experiment' }}-${{ github.run_id }}
           path: artifacts/kaggle-output
           if-no-files-found: error
-
-      - name: Optional Kaggle competition submit
-        if: ${{ github.event.inputs.submit_to_kaggle == 'true' && steps.wait.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          SUBMISSION=$(python - <<'PY'
-          from pathlib import Path
-          root = Path("artifacts/kaggle-output")
-          hits = sorted(root.rglob("*.csv"))
-          preferred = [p for p in hits if "submission" in p.as_posix().lower() or p.parent.name == "submissions"]
-          path = (preferred or hits or [None])[0]
-          if path is None:
-              raise SystemExit("No submission CSV found in kernel output")
-          print(path)
-          PY
-          )
-          EXP="${{ steps.prepare.outputs.experiment }}"
-          echo "Submitting $SUBMISSION for experiment=$EXP"
-          kaggle competitions submit \
-            -c playground-series-s6e8 \
-            -f "$SUBMISSION" \
-            -m "experiment=${EXP} sha=${S6E8_GIT_COMMIT}"
 
       - name: Fail if kernel did not complete
         if: always() && steps.push.outcome == 'success' && steps.wait.outcome != 'success'
