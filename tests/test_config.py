@@ -5,6 +5,7 @@ import copy
 import pytest
 
 from s6e8.data import load_config
+from s6e8.models.train import resolve_backend
 from s6e8.runtime import experiment_summary, validate_config
 
 
@@ -15,6 +16,77 @@ def test_baseline_yaml_loads(baseline_config_path):
     assert config["experiment"]["seed"] == 42
     assert config["runtime"]["accelerator"] == "cpu"
     assert config["model"]["name"] == "lightgbm"
+
+
+@pytest.mark.parametrize("model_name", ["lookup_transformer", "lookup"])
+def test_lookup_transformer_backend_resolves(baseline_config_path, model_name):
+    config = load_config(baseline_config_path)
+    config["model"]["name"] = model_name
+
+    assert resolve_backend(config) == "lookup_transformer"
+
+
+def test_lookup_transformer_formal_config_contract():
+    from pathlib import Path
+
+    config = load_config(Path("configs/lookup_transformer_v1.yaml"))
+    validate_config(config)
+
+    lookup_columns = [
+        "age",
+        "daily_screen_time_hours",
+        "social_media_hours",
+        "gaming_hours",
+        "work_study_hours",
+        "sleep_hours",
+        "notifications_per_day",
+        "app_opens_per_day",
+        "weekend_screen_time",
+    ]
+    numeric_token_columns = [
+        *lookup_columns,
+        "screen_component_sum_complete",
+        "screen_remainder_complete",
+        "screen_component_share_complete",
+        "screen_remainder_share_complete",
+        "weekend_minus_component_sum",
+        "weekend_minus_remainder",
+        "awake_non_screen_hours",
+    ]
+    expected_precision = {
+        "age": 0,
+        "daily_screen_time_hours": 2,
+        "social_media_hours": 2,
+        "gaming_hours": 2,
+        "work_study_hours": 2,
+        "sleep_hours": 2,
+        "notifications_per_day": 0,
+        "app_opens_per_day": 0,
+        "weekend_screen_time": 2,
+    }
+
+    assert config["experiment"]["formal"] is True
+    assert config["experiment"]["validation_protocol"] == "fixed5_seed42_v1"
+    assert config["experiment"]["seed"] == 42
+    assert config["runtime"]["accelerator"] == "gpu"
+    assert config["cv"] == {
+        "type": "stratified",
+        "n_splits": 5,
+        "shuffle": True,
+    }
+    assert config["model"]["name"] == "lookup_transformer"
+    assert config["model"]["lookup_columns"] == lookup_columns
+    assert config["model"]["numeric_token_columns"] == numeric_token_columns
+    assert config["model"]["decimal_places"] == expected_precision
+    assert config["features"]["exact_categorical"]["enabled"] is False
+    assert config["features"]["screen_budget"] == {
+        "enabled": True,
+        "tolerance": 1.0e-9,
+    }
+    assert config["features"]["decimal_lattice"]["enabled"] is False
+    assert config["external_reference"]["enabled"] is False
+    assert config["output"]["save_oof"] is True
+    assert config["output"]["save_test"] is True
 
 
 def test_formal_protocol_rejects_fold_or_seed_drift(baseline_config_path):
