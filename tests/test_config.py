@@ -201,6 +201,11 @@ REFERENCE_CONFIGS = (
     "catboost_exactcat_budget_reflabel_v1",
 )
 
+LATTICE_REFERENCE_CONFIGS = (
+    "catboost_exactcat_budget_lattice_refdist_v1",
+    "catboost_exactcat_budget_lattice_reflabel_v1",
+)
+
 
 def test_reference_configs_are_isolated_children_and_keep_base_categories():
     """Catch unrelated model/feature drift in either external-reference child."""
@@ -221,6 +226,26 @@ def test_reference_configs_are_isolated_children_and_keep_base_categories():
         reference = candidate["external_reference"]
         assert reference["enabled"] is True
         assert reference["remove_query_overlaps"] is True
+        normalized = _without_experiment_metadata(candidate)
+        normalized.pop("external_reference")
+        assert normalized == base
+
+
+def test_lattice_reference_configs_are_isolated_children_of_promoted_parent():
+    """Reference modes must retain the promoted decimal-lattice parent exactly."""
+    from pathlib import Path
+
+    base = _without_experiment_metadata(
+        load_config(Path("configs/catboost_exactcat_budget_lattice_v1.yaml"))
+    )
+    for name, original_name in zip(
+        LATTICE_REFERENCE_CONFIGS, REFERENCE_CONFIGS
+    ):
+        candidate = load_config(Path("configs") / f"{name}.yaml")
+        original = load_config(Path("configs") / f"{original_name}.yaml")
+        validate_config(candidate)
+        assert candidate["experiment"]["name"] == name
+        assert candidate["external_reference"] == original["external_reference"]
         normalized = _without_experiment_metadata(candidate)
         normalized.pop("external_reference")
         assert normalized == base
