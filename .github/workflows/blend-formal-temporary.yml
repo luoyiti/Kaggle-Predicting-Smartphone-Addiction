@@ -1,0 +1,129 @@
+name: Formal Blend Temporary
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/blend-formal-temporary.yml"
+
+concurrency:
+  group: formal-blend-structural-v1
+  cancel-in-progress: false
+
+jobs:
+  blend:
+    name: honest-lofo-blends
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install blend dependencies
+        run: pip install numpy pandas pyarrow scikit-learn pyyaml
+
+      - name: Download existing tree artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: histgb-nocat-long-v1-32117027692
+          path: inputs/existing
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 32117027692
+
+      - name: Download exact-category artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: kaggle-formal-catboost_exactcat_v1-32220132489
+          path: inputs/exact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 32220132489
+
+      - name: Download budget artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: kaggle-formal-catboost_exactcat_budget_v1-32221825133
+          path: inputs/budget
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 32221825133
+
+      - name: Assemble aligned component root
+        run: |
+          mkdir -p blend-input/oof
+          cp -R inputs/existing/reference/oof/lgbm_nocat blend-input/oof/
+          cp -R inputs/existing/new/oof/histgb_nocat_long_v1 blend-input/oof/
+          cp -R inputs/exact/oof/catboost_exactcat_v1 blend-input/oof/
+          cp -R inputs/budget/oof/catboost_exactcat_budget_v1 blend-input/oof/
+
+      - name: Run honest LOFO candidates
+        run: |
+          python scripts/blend_oof.py \
+            --experiments lgbm_nocat histgb_nocat_long_v1 \
+            --method lofo_grid --grid-step 5 \
+            --name lofo_lgbm_hist_v1 \
+            --oof-dir blend-input/oof --submission-dir blend-output/submissions
+          python scripts/blend_oof.py \
+            --experiments lgbm_nocat catboost_exactcat_budget_v1 \
+            --method lofo_grid --grid-step 5 \
+            --name lofo_lgbm_budget_v1 \
+            --oof-dir blend-input/oof --submission-dir blend-output/submissions
+          python scripts/blend_oof.py \
+            --experiments histgb_nocat_long_v1 catboost_exactcat_budget_v1 \
+            --method lofo_grid --grid-step 5 \
+            --name lofo_hist_budget_v1 \
+            --oof-dir blend-input/oof --submission-dir blend-output/submissions
+          python scripts/blend_oof.py \
+            --experiments lgbm_nocat histgb_nocat_long_v1 catboost_exactcat_budget_v1 \
+            --method lofo_grid --grid-step 5 \
+            --name lofo_lgbm_hist_budget_v1 \
+            --oof-dir blend-input/oof --submission-dir blend-output/submissions
+
+      - name: Validate blend artifacts
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          import numpy as np
+          import pandas as pd
+
+          names = [
+              "lofo_lgbm_hist_v1",
+              "lofo_lgbm_budget_v1",
+              "lofo_hist_budget_v1",
+              "lofo_lgbm_hist_budget_v1",
+          ]
+          for name in names:
+              root = Path("blend-input/oof") / name
+              metrics = json.loads((root / "metrics.json").read_text())
+              oof = pd.read_parquet(root / "oof.parquet")
+              test = pd.read_parquet(root / "test.parquet")
+              assert metrics["method"] == "lofo_grid"
+              assert metrics["lofo_selection"] is True
+              assert metrics["in_sample_weight_search"] is False
+              assert len(metrics["fold_weights"]) == 5
+              assert len(oof) == 691_369 and len(test) == 296_302
+              assert oof["id"].is_unique and test["id"].is_unique
+              assert set(oof["fold"].unique()) == {0, 1, 2, 3, 4}
+              assert np.isfinite(oof["pred"]).all() and np.isfinite(test["pred"]).all()
+              print(name, metrics["oof_auc"], metrics["weight_mean"])
+          PY
+
+      - name: Upload blend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-lofo-blends-${{ github.run_id }}
+          path: |
+            blend-input/oof/lofo_*
+            blend-output/submissions
+            experiments/lofo_*.json
+          if-no-files-found: error
