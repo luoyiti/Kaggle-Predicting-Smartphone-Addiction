@@ -173,6 +173,29 @@ def test_adjacent_catboost_configs_are_isolated_feature_experiments(
     assert candidate == control
 
 
+def test_catboost_budget_noage_is_an_isolated_exact_category_ablation():
+    """Keep numeric age and change only the generated exact-category selection."""
+    from pathlib import Path
+
+    parent = _without_experiment_metadata(
+        load_config(Path("configs/catboost_exactcat_budget_v1.yaml"))
+    )
+    candidate = load_config(Path("configs/catboost_exactcat_budget_noage_v1.yaml"))
+    validate_config(candidate)
+
+    expected_exact_columns = [
+        column for column in parent["features"]["numeric"] if column != "age"
+    ]
+    assert "age" in candidate["features"]["numeric"]
+    assert candidate["features"]["exact_categorical"]["columns"] == expected_exact_columns
+
+    normalized = _without_experiment_metadata(candidate)
+    normalized["features"]["exact_categorical"]["columns"] = parent["features"][
+        "exact_categorical"
+    ]["columns"]
+    assert normalized == parent
+
+
 REFERENCE_CONFIGS = (
     "catboost_exactcat_budget_refdist_v1",
     "catboost_exactcat_budget_reflabel_v1",
