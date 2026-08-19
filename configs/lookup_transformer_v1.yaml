@@ -1,0 +1,150 @@
+experiment:
+  name: lookup_transformer_v1
+  seed: 42
+  data_version: v1
+  feature_version: exact_budget_lookup_v1
+  model_version: lookup_transformer_v1
+  formal: true
+  validation_protocol: fixed5_seed42_v1
+  hypothesis: Exact-value lookup embeddings plus smooth budget tokens can exceed the tree-model structural frontier.
+  change: Add a target-isolated Lookup-Transformer on the exact numeric grid and promoted screen-budget features.
+
+runtime:
+  accelerator: gpu
+  enable_internet: true
+
+competition:
+  slug: playground-series-s6e8
+  task: binary_classification
+  target: addicted_label
+  id_col: id
+  metric: roc_auc
+  positive_class: 1
+
+paths:
+  train: data/raw/train.csv
+  test: data/raw/test.csv
+  sample_submission: data/raw/sample_submission.csv
+  oof_dir: oof
+  submission_dir: submissions
+
+cv:
+  type: stratified
+  n_splits: 5
+  shuffle: true
+
+features:
+  numeric:
+    - age
+    - daily_screen_time_hours
+    - social_media_hours
+    - gaming_hours
+    - work_study_hours
+    - sleep_hours
+    - notifications_per_day
+    - app_opens_per_day
+    - weekend_screen_time
+  categorical:
+    - gender
+    - stress_level
+    - academic_work_impact
+  engineering:
+    add_n_missing: false
+    add_missing_indicators: false
+    add_leisure_hours: false
+    add_screen_sleep_ratio: false
+    add_weekend_weekday_ratio: false
+    add_notif_per_open: false
+    ratio_eps: 1.0e-6
+  exact_categorical:
+    enabled: false
+    columns: auto_numeric
+    suffix: __exact
+    missing_token: __MISSING__
+    decimal_places:
+      age: 0
+      daily_screen_time_hours: 2
+      social_media_hours: 2
+      gaming_hours: 2
+      work_study_hours: 2
+      sleep_hours: 2
+      notifications_per_day: 0
+      app_opens_per_day: 0
+      weekend_screen_time: 2
+  screen_budget:
+    enabled: true
+    tolerance: 1.0e-9
+  decimal_lattice:
+    enabled: false
+    columns:
+      - daily_screen_time_hours
+      - social_media_hours
+      - gaming_hours
+      - work_study_hours
+      - sleep_hours
+      - weekend_screen_time
+
+external_reference:
+  enabled: false
+
+model:
+  name: lookup_transformer
+  lookup_columns:
+    - age
+    - daily_screen_time_hours
+    - social_media_hours
+    - gaming_hours
+    - work_study_hours
+    - sleep_hours
+    - notifications_per_day
+    - app_opens_per_day
+    - weekend_screen_time
+  numeric_token_columns:
+    - age
+    - daily_screen_time_hours
+    - social_media_hours
+    - gaming_hours
+    - work_study_hours
+    - sleep_hours
+    - notifications_per_day
+    - app_opens_per_day
+    - weekend_screen_time
+    - screen_component_sum_complete
+    - screen_remainder_complete
+    - screen_component_share_complete
+    - screen_remainder_share_complete
+    - weekend_minus_component_sum
+    - weekend_minus_remainder
+    - awake_non_screen_hours
+  decimal_places:
+    age: 0
+    daily_screen_time_hours: 2
+    social_media_hours: 2
+    gaming_hours: 2
+    work_study_hours: 2
+    sleep_hours: 2
+    notifications_per_day: 0
+    app_opens_per_day: 0
+    weekend_screen_time: 2
+  params:
+    d_model: 128
+    plr_frequencies: 24
+    n_layers: 4
+    n_heads: 8
+    dropout: 0.15
+    mask_probability: 0.10
+    batch_size: 2048
+    epochs: 32
+    learning_rate: 1.0e-3
+    weight_decay: 1.0e-4
+    embedding_weight_decay: 1.0e-3
+    ema_decay: 0.995
+    patience: 6
+    max_grad_norm: 1.0
+    num_workers: 2
+
+output:
+  save_oof: true
+  save_test: true
+  save_submission: true
+  dtype: float64
