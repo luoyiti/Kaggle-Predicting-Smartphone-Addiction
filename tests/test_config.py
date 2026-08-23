@@ -34,6 +34,7 @@ def test_new_modeling_configs_declare_a_hypothesis():
         "histgb_nocat_long_v1",
         "lgbm_freq_v1",
         "lgbm_nocat_dart_v1",
+        "lgbm_nocat_goss_v1",
         "lgbm_nocat_hardband_v1",
         "lgbm_nocat_mono",
         "mlp_nocat",
@@ -312,5 +313,30 @@ def test_dart_config_isolates_boosting_type():
         blob["experiment"].pop("change")
         blob["experiment"].pop("model_version")
         blob["model"]["params"].pop("boosting_type")
+    assert left == right
+
+
+def test_goss_config_isolates_boosting_type():
+    from copy import deepcopy
+    from pathlib import Path
+
+    import yaml
+
+    base = yaml.safe_load(Path("configs/lgbm_nocat.yaml").read_text(encoding="utf-8"))
+    goss = yaml.safe_load(Path("configs/lgbm_nocat_goss_v1.yaml").read_text(encoding="utf-8"))
+    assert goss["experiment"]["name"] == "lgbm_nocat_goss_v1"
+    assert goss["model"]["params"]["boosting_type"] == "goss"
+    assert goss["model"]["params"]["bagging_freq"] == 0
+    assert base["model"]["params"]["boosting_type"] == "gbdt"
+    assert base["model"]["params"]["bagging_freq"] == 1
+    left = deepcopy(base)
+    right = deepcopy(goss)
+    for blob in (left, right):
+        blob["experiment"].pop("name")
+        blob["experiment"].pop("hypothesis")
+        blob["experiment"].pop("change")
+        blob["experiment"].pop("model_version")
+        blob["model"]["params"].pop("boosting_type")
+        blob["model"]["params"].pop("bagging_freq")
     assert left == right
 
