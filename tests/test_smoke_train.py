@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 import yaml
 
 from s6e8.data import load_config, split_xy
@@ -119,6 +120,133 @@ def test_smoke_histgb_and_logreg_backends(tmp_path, baseline_config_path):
         artifacts = train_cv(X_train, test_df, y, config)
         assert 0.0 <= artifacts["oof_auc"] <= 1.0
         assert len(artifacts["oof"]) == len(train_df)
+
+
+def test_smoke_mlp_backend(tmp_path, baseline_config_path):
+    train_df, test_df = _synthetic_frames(n_train=120, n_test=30)
+    raw = yaml.safe_load(baseline_config_path.read_text(encoding="utf-8"))
+    raw["experiment"]["name"] = "synthetic_mlp"
+    raw["paths"]["train"] = str(tmp_path / "train.csv")
+    raw["paths"]["test"] = str(tmp_path / "test.csv")
+    raw["paths"]["sample_submission"] = str(tmp_path / "missing.csv")
+    raw["paths"]["oof_dir"] = str(tmp_path / "oof")
+    raw["paths"]["submission_dir"] = str(tmp_path / "submissions")
+    raw["paths"]["experiments_dir"] = str(tmp_path / "experiments")
+    raw["cv"]["n_splits"] = 2
+    raw["model"]["name"] = "mlp"
+    raw["model"]["params"] = {
+        "hidden_layer_sizes": [8],
+        "max_iter": 40,
+        "early_stopping": True,
+        "validation_fraction": 0.2,
+    }
+    raw["features"]["drop"] = ["gender", "stress_level", "academic_work_impact"]
+    train_df.to_csv(raw["paths"]["train"], index=False)
+    test_df.to_csv(raw["paths"]["test"], index=False)
+    cfg_path = tmp_path / "mlp.yaml"
+    cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    config = load_config(cfg_path)
+    X_train, y = split_xy(train_df, config)
+    artifacts = train_cv(X_train, test_df, y, config)
+    assert 0.0 <= artifacts["oof_auc"] <= 1.0
+    assert len(artifacts["oof"]) == len(train_df)
+
+
+def test_smoke_frequency_encoding_adds_fold_features(tmp_path, baseline_config_path):
+    train_df, test_df = _synthetic_frames()
+    raw = yaml.safe_load(Path("configs/lgbm_freq_v1.yaml").read_text(encoding="utf-8"))
+    raw["experiment"]["name"] = "synthetic_freq"
+    raw["paths"]["train"] = str(tmp_path / "train.csv")
+    raw["paths"]["test"] = str(tmp_path / "test.csv")
+    raw["paths"]["sample_submission"] = str(tmp_path / "missing.csv")
+    raw["paths"]["oof_dir"] = str(tmp_path / "oof")
+    raw["paths"]["submission_dir"] = str(tmp_path / "submissions")
+    raw["paths"]["experiments_dir"] = str(tmp_path / "experiments")
+    raw["cv"]["n_splits"] = 2
+    raw["model"]["num_boost_round"] = 20
+    raw["model"]["early_stopping_rounds"] = 5
+    raw["model"]["log_evaluation"] = 0
+    train_df.to_csv(raw["paths"]["train"], index=False)
+    test_df.to_csv(raw["paths"]["test"], index=False)
+    cfg_path = tmp_path / "freq.yaml"
+    cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    config = load_config(cfg_path)
+    X_train, y = split_xy(train_df, config)
+    artifacts = train_cv(X_train, test_df, y, config)
+    assert any(name.endswith("_freq") for name in artifacts["feature_names"])
+    assert artifacts.get("freq_fold_stats")
+
+
+def test_smoke_exactcat_lightgbm(tmp_path):
+    train_df, test_df = _synthetic_frames()
+    raw = yaml.safe_load(Path("configs/lgbm_exactcat_v1.yaml").read_text(encoding="utf-8"))
+    raw["experiment"]["name"] = "synthetic_exactcat"
+    raw["paths"]["train"] = str(tmp_path / "train.csv")
+    raw["paths"]["test"] = str(tmp_path / "test.csv")
+    raw["paths"]["sample_submission"] = str(tmp_path / "missing.csv")
+    raw["paths"]["oof_dir"] = str(tmp_path / "oof")
+    raw["paths"]["submission_dir"] = str(tmp_path / "submissions")
+    raw["paths"]["experiments_dir"] = str(tmp_path / "experiments")
+    raw["cv"]["n_splits"] = 2
+    raw["model"]["num_boost_round"] = 20
+    raw["model"]["early_stopping_rounds"] = 5
+    raw["model"]["log_evaluation"] = 0
+    train_df.to_csv(raw["paths"]["train"], index=False)
+    test_df.to_csv(raw["paths"]["test"], index=False)
+    cfg_path = tmp_path / "exactcat.yaml"
+    cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    config = load_config(cfg_path)
+    X_train, y = split_xy(train_df, config)
+    artifacts = train_cv(X_train, test_df, y, config)
+    assert any(name.endswith("__exact") for name in artifacts["feature_names"])
+    assert artifacts["cat_cols"]
+    assert all(c.endswith("__exact") for c in artifacts["cat_cols"])
+
+
+def test_monotone_constraints_follow_feature_order():
+    from s6e8.models.train import apply_monotone_constraints
+
+    params = {"learning_rate": 0.05}
+    config = {
+        "model": {
+            "monotone_constraints": {
+                "daily_screen_time_hours": 1,
+                "sleep_hours": -1,
+            }
+        }
+    }
+    names = ["age", "daily_screen_time_hours", "sleep_hours"]
+    out = apply_monotone_constraints(params, names, config, "lightgbm")
+    assert out["monotone_constraints"] == [0, 1, -1]
+    xgb = apply_monotone_constraints(params, names, config, "xgboost")
+    assert xgb["monotone_constraints"] == "(0,1,-1)"
+
+
+def test_smoke_catboost_exactcat_if_installed(tmp_path):
+    pytest.importorskip("catboost")
+    train_df, test_df = _synthetic_frames()
+    raw = yaml.safe_load(Path("configs/catboost_exactcat_v1.yaml").read_text(encoding="utf-8"))
+    raw["experiment"]["name"] = "synthetic_cb"
+    raw["paths"]["train"] = str(tmp_path / "train.csv")
+    raw["paths"]["test"] = str(tmp_path / "test.csv")
+    raw["paths"]["sample_submission"] = str(tmp_path / "missing.csv")
+    raw["paths"]["oof_dir"] = str(tmp_path / "oof")
+    raw["paths"]["submission_dir"] = str(tmp_path / "submissions")
+    raw["paths"]["experiments_dir"] = str(tmp_path / "experiments")
+    raw["cv"]["n_splits"] = 2
+    raw["model"]["num_boost_round"] = 20
+    raw["model"]["early_stopping_rounds"] = 5
+    raw["model"]["log_evaluation"] = 0
+    raw["model"]["params"]["allow_writing_files"] = False
+    train_df.to_csv(raw["paths"]["train"], index=False)
+    test_df.to_csv(raw["paths"]["test"], index=False)
+    cfg_path = tmp_path / "cb.yaml"
+    cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    config = load_config(cfg_path)
+    X_train, y = split_xy(train_df, config)
+    artifacts = train_cv(X_train, test_df, y, config)
+    assert 0.0 <= artifacts["oof_auc"] <= 1.0
+    assert any(name.endswith("__exact") for name in artifacts["feature_names"])
 
 
 def test_histgb_fit_accepts_missing_x_val():

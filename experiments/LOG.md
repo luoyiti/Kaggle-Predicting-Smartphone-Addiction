@@ -105,3 +105,47 @@ Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submi
 - Mean-blending nocat with OOF exact-value TE (≤ +0.00002).
 - `other_screen` / `component_sum` / `weekend − daily` / value-frequency / fractional parts as extra GBM columns (residual vs nocat ≈ 0).
 - Another LGBM+HistGB probability blend pass.
+
+## Remaining paths armed in this iteration (no AUC until metrics.json)
+
+Configs below isolate **one scientific variable** each. They are ready for Kaggle
+Kernels (`n_splits=5`, full train). This VM may run `--max-train-rows 80000
+--n-splits 3` ranking only. Do not treat those numbers as competition scores.
+
+| config | isolated variable | why it is still open on main |
+| --- | --- | --- |
+| `catboost_numeric_v1` | CatBoost family on nocat numerics | Trainer existed; no YAML. Control for exact-cat. |
+| `catboost_exactcat_v1` | Exact numeric copies as CatBoost categories | LGBM TE of the same identity **hurt**. CatBoost ordered CTRs are a different mechanism. Public S6E8 OOF libraries also credit float-as-category families. |
+| `catboost_exactcat_budget_v1` | Screen-budget remainder / share / awake hours | Playground obeys `daily ≥ social+gaming+work`; original source does not. |
+| `catboost_exactcat_lattice_v1` | Fractional part + first decimal digit | Digit-derived cats showed up in public OOF libraries; residual vs nocat was ~0 for LGBM, untested in CatBoost. |
+| `catboost_origcats_v1` | Keep gender/stress/academic in CatBoost | Noise for LGBM; CatBoost CTR might still use them. |
+| `histgb_nocat_long_v1` | HistGB `max_iter=2500` | Full 5-fold histgb_nocat capped at 500 trees. |
+| `histgb_exactcat_v1` | HistGB native cats on exact copies | Different cat implementation than CatBoost CTR. |
+| `xgb_nocat` | XGBoost on the nocat view | `xgb_raw` still had the three categoricals. |
+| `lgbm_nocat_seed7` / `lgbm_nocat_seed2026` | Seed only | Seed average of the current best single model. |
+| `lgbm_nocat_extratrees` | `extra_trees=true` | Complementary splits on the hard p∈(0.3,0.7) band. |
+| `lgbm_nocat_mono` | Monotone constraints on usage/sleep | Domain generator is roughly monotone. |
+| `lgbm_nocat_lr02` | `learning_rate=0.02` | Best iter 1549–1912 at lr=0.05; slower fit. |
+| `lgbm_exactcat_v1` | LightGBM categorical splits on exact copies | Negative control vs CatBoost CTR. |
+| `lgbm_freq_v1` | Fold-safe value frequency (no labels) | Distinct from TE; rarity without early-stopping hijack. |
+| `logreg_exact_te_v1` | Logistic + fold-safe TE of all 9 numerics | logreg_raw was too weak to stack; identity TE may not be. |
+| `mlp_nocat` | sklearn MLP on nocat numerics | Architecture diversity; expected high correlation with trees. |
+
+Blend/stack once OOF exists:
+
+```bash
+python scripts/blend_oof.py --experiments lgbm_nocat lgbm_nocat_seed7 lgbm_nocat_seed2026 --method mean --name lgbm_nocat_seedavg
+python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_v1 histgb_nocat_long_v1 --method stack_logistic --name stack_lgbm_cb_hist
+```
+
+### Still unexplored after this code lands
+
+- Target-free **reference distribution** features from the 7,500-row source (do **not** append those rows; component dependence differs).
+- TabM / RealMLP / FT-Transformer (public notebooks; optional `torch`; Lookup-Transformer on a draft branch failed its solo gate).
+- CatBoost / XGBoost GPU HPO (depth, l2, subsample grids) after the exact-cat control is scored.
+- Pseudo-labelling / test-time augmentation. High leak risk on playground identity.
+- Sample weights, class rebalancing (metric is ROC-AUC; 71% positive is already ranked).
+- Calibration (Platt/isotonic): monotone, so it cannot move ROC-AUC of a single model.
+- Mixing original labelled rows into train (already rejected).
+
+A separate draft PR (`agent/histgb-nocat-long-v1`) reports 0.9683 honest OOF from CatBoost exact-cat + budget + refdist + Lookup blend. That work is **not on main**. This branch re-implements the config-driven levers on main without copying the neural Lookup path.

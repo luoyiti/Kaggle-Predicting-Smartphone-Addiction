@@ -130,6 +130,14 @@ Current best single-model YAML (from 80k diagnostics, not a full-data score): `c
 python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid
 ```
 
+Next modeling YAMLs (one scientific variable each; run on Kaggle Kernels for a real 5-fold score) live beside them: CatBoost exact-value categoricals (`configs/catboost_exactcat_v1.yaml`), longer HistGB, XGBoost on the nocat view, LGBM seed/HPO variants, fold-safe frequency encoding, and a sklearn MLP. See `experiments/LOG.md`.
+
+Honest stacked OOF (logistic/ridge, inner CV):
+
+```bash
+python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_v1 --method stack_logistic
+```
+
 ## Cloud workflow (daily loop)
 
 1. Agent adds `configs/xgb_gpu_v2.yaml` (new file, unique `experiment.name`)

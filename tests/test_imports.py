@@ -6,6 +6,9 @@ def test_package_imports():
     import s6e8.features
     import s6e8.models.train
     import s6e8.runtime
+    import s6e8.blending
+    import s6e8.frequency_encoding
+    import s6e8.structural_features
     import s6e8.target_encoding
 
     assert s6e8.__version__
@@ -13,3 +16,6 @@ def test_package_imports():
     assert callable(s6e8.runtime.get_accelerator)
     assert callable(s6e8.eda.run_eda)
     assert callable(s6e8.target_encoding.parse_exact_te_config)
+    assert callable(s6e8.frequency_encoding.parse_frequency_config)
+    assert callable(s6e8.structural_features.add_structural_features)
+    assert callable(s6e8.blending.stack_logistic_cv)
