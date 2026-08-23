@@ -1,0 +1,20 @@
+kind: ensemble
+experiment:
+  name: blend_seedbag_catboost
+  seed: 42
+  hypothesis: >
+    80k grid 0.70 seedbag + 0.30 catboost_nocat was the best diagnostic blend
+    (0.956368 vs nocat 0.954317). Needs parent Kernel OOFs.
+  change: grid blend of lgbm_nocat_seedbag + catboost_nocat
+  expected_effect: Tiny extra lift on top of seedbag; Kernel-only.
+  primary_variable: ensemble.method / seedbag+catboost
+
+ensemble:
+  method: grid
+  components:
+    - lgbm_nocat_seedbag
+    - catboost_nocat
+
+command: >
+  python scripts/blend_oof.py --experiments lgbm_nocat_seedbag catboost_nocat
+  --method grid --name blend_seedbag_catboost --write-experiment-record

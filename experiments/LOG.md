@@ -58,6 +58,32 @@ Error analysis on `lgbm_nocat_diag80000`: hard band n=12,219, AUC 0.637, max res
 
 CatBoost and XGBoost nocat YAML are implemented but **not scored here** (`xgboost`/`catboost` not installed). Kernel-only.
 
+## Diagnostic ranking, remaining GBDT / seed surfaces (real 80k × 3-fold, seed 42 subsample — not a 5-fold score)
+
+Same protocol as the previous 80k table. Control `lgbm_nocat_diag80000` still **0.954317**. Packages `xgboost==3.4.1` and `catboost==1.2.10` were installed for this ranking only (not added to `requirements.txt`).
+
+| experiment | hypothesis | change | CV AUC | vs nocat | conclusion |
+| --- | --- | --- | --- | --- | --- |
+| lgbm_nocat_diag80000 | Control | 9 raw numerics | **0.954317** | 0 | Reproduced |
+| lgbm_nocat_seedbag_diag80000 | Mean of 3 CV seeds | bag_seeds 42/43/2026 | **0.956035** | **+0.00172** | Members 0.954317 / 0.954575 / 0.954699. Best remaining Kernel job |
+| lgbm_nocat_lowlr_diag80000 | Slower schedule | lr=0.02 | 0.954917 | +0.00060 | ~2× fold std; corr 0.996 with default LGBM |
+| catboost_nocat_diag80000 | Ordered boosting | CatBoost, nocat | 0.954249 | −0.00007 | Tied with LGBM; useful blend partner (corr 0.986) |
+| catboost_raw_diag80000 | CatBoost native cats | cats kept | 0.954273 | −0.00004 | Cats still noise |
+| xgb_nocat_diag80000 | Third GBDT on nocat | XGBoost hist | 0.952417 | −0.00190 | Same gap as xgb_raw |
+| histgb_nocat_moreiter_diag80000 | Uncap HistGB | max_iter=2000 | 0.953986 | −0.00033 | best_iter 531–542 on sklearn 1.9; flat vs histgb_nocat 80k |
+| lgbm_nocat_extra_trees_diag80000 | Random splits | extra_trees=true | 0.939472 | **−0.015** | Harmful. Stop |
+| blend_lgbm_cb_diag80000 | CB diversity | grid 0.50/0.50 | **0.955326** | +0.00101 | Better 80k blend than LGBM+HistGB |
+| blend_seedbag_cb_diag80000 | Seedbag + CB | grid 0.70/0.30 | **0.956368** | +0.00205 | Best diagnostic blend |
+| blend_three_gbdt_diag80000 | LGBM+CB+HistGB | grid 0.3/0.4/0.3 | 0.955574 | +0.00126 | Below seedbag alone |
+| blend_lgbm_histgb_moreiter_diag80000 | Uncapped HistGB partner | grid 0.55/0.45 | 0.954896 | +0.00058 | Same as old histgb blend |
+| blend_rank_lgbm_histgb_diag80000 | Rank vs grid | rank 0.5/0.5 | 0.954880 | +0.00056 | Rank ≈ grid |
+| blend_lgbm_xgb_diag80000 | XGB partner | grid 0.75/0.25 | 0.954512 | +0.00020 | Tiny |
+| blend_lgbm_lowlr_diag80000 | Two LGBM schedules | grid 0.25/0.75 | 0.954991 | +0.00067 | Almost just lowlr |
+
+Adversarial train/test AUC (40k subsample, numeric + missing flags): **0.5585** (warn ≥ 0.55). Matches the known 2–3% missing-rate gaps; not a reason to add shift features.
+
+`scripts/promote.py --candidate lgbm_nocat_seedbag_diag80000 --baseline lgbm_nocat_diag80000` failed closed (`diagnostic runs cannot be promoted`) even though delta was +0.00172.
+
 ## Diagnostic ranking (80k rows, 3-fold, seed 42 — not a leaderboard number)
 
 | experiment | hypothesis | change | CV AUC | fold std | runtime | conclusion | next step |
@@ -131,29 +157,36 @@ Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submi
 - Mean-blending nocat with OOF exact-value TE (≤ +0.00002).
 - `other_screen` / `component_sum` / `weekend − daily` / value-frequency / fractional parts as extra GBM columns (residual vs nocat ≈ 0).
 - Another LGBM+HistGB probability blend pass.
+- LightGBM `extra_trees` (80k 0.939).
+- CatBoost with categoricals kept (`catboost_raw` tied with nocat).
 
-## Modeling surface added for Kernel follow-up (no new 5-fold score yet)
+## Full 5-fold jobs (queued — not scored)
 
-These configs/scripts exist so the remaining families can be run without writing trainers. They are **not** competition scores until `oof/<name>/metrics.json` exists from a non-diagnostic Kernel (or equivalent) run.
+1. `configs/lgbm_nocat_seedbag.yaml` — 80k +0.00172; ~3× `lgbm_nocat` wall-clock.
+2. Optional `configs/catboost_nocat.yaml` then grid blend with seedbag.
 
-| name | primary variable | run |
-| --- | --- | --- |
-| `lgbm_nocat_missflags` | missing indicators | `python scripts/train.py --config configs/lgbm_nocat_missflags.yaml` |
-| `lgbm_nocat_leisure_work` | leisure/work ratio | train.py |
-| `lgbm_nocat_interactions` | pairwise products | train.py |
-| `lgbm_nocat_bins` | quantile bins | train.py |
-| `lgbm_ordinal_cats` | ordinal cat maps | train.py |
-| `lgbm_cat_missing_level` | `__NA__` cat level | train.py |
-| `xgb_nocat` | XGBoost on nocat | train.py (needs xgboost) |
-| `catboost_nocat` | CatBoost on nocat | train.py (needs catboost) |
-| `extratrees_nocat` | ExtraTrees | train.py; start with `--max-train-rows 80000 --n-splits 3` |
-| `logreg_nocat` | linear + miss flags | train.py |
-| rank / auc_weighted blend | ensemble method | `scripts/blend_oof.py --method rank\|auc_weighted` |
-| logistic stack | stacker | `scripts/stack_oof.py` |
-| isotonic / platt | calibration | `scripts/calibrate_oof.py` |
-| promotion | vs `lgbm_nocat` | `scripts/promote.py --candidate <name>` |
-| data contract audit | schema/shift/leak | `scripts/audit_data.py` |
-| slices / error analysis | eval loop | `scripts/eval_slices.py`, `scripts/error_analysis.py` |
+## Modeling surface added for Kernel follow-up
+
+Configs/scripts exist so remaining families can run without new trainers. **Competition scores** still require non-diagnostic `oof/<name>/metrics.json`.
+
+| name | primary variable | 80k×3 (this VM) | Kernel? |
+| --- | --- | --- | --- |
+| `lgbm_nocat_seedbag` | `experiment.bag_seeds` | **0.956035** | **Yes — next 5-fold** |
+| `catboost_nocat` | model.name catboost | 0.954249 | Yes, if catboost on image |
+| `lgbm_nocat_lowlr` | learning_rate 0.02 | 0.954917 | Optional; highly correlated with default |
+| `xgb_nocat` | model.name xgboost | 0.952417 | Low priority |
+| `histgb_nocat_moreiter` | max_iter 2000 | 0.953986 | Only if Kernel sklearn still caps at 500 |
+| `lgbm_nocat_extra_trees` | extra_trees | 0.939472 | **No** |
+| `catboost_raw` | keep cats | 0.954273 | **No** (tied with nocat) |
+| `lgbm_nocat_seed43` / `seed2026` | extra seeds | (inside seedbag) | Alternative to one 3× job |
+| rank / auc_weighted / LGBM+CB grid | ensemble | see table | After parent OOFs exist |
+
+```bash
+python scripts/train.py --config configs/lgbm_nocat_seedbag.yaml
+python scripts/train.py --config configs/catboost_nocat.yaml
+python scripts/blend_oof.py --experiments lgbm_nocat_seedbag catboost_nocat --method grid --name blend_seedbag_catboost --write-experiment-record
+python scripts/promote.py --candidate lgbm_nocat_seedbag --baseline lgbm_nocat
+```
 
 Human report: `reports/mle_modeling_report.html`. Contracts: `docs/mle/`.
 

@@ -35,6 +35,10 @@ Categorical (nulls allowed): `gender` {Male, Female, Other}, `stress_level` {Low
 
 Absence is allowed on every feature column. Trees may use native NaN. Missingness-as-signal is an explicit YAML flag (`add_n_missing`, `add_missing_indicators`), not median fill unless the backend requires it (logreg, ExtraTrees).
 
+## Shift audit
+
+`scripts/audit_data.py` records numeric/categorical PSI and an **adversarial** logistic AUC (is_test ~ features + missing flags, 40k subsample). PSI on the official tables is ~1e-5. Adversarial AUC on this snapshot was **0.559** (warn ≥ 0.55), consistent with 2–3% missing-rate gaps, not a feature overhaul.
+
 ## Snapshot
 
 - Local: `data/raw/train.csv`, `test.csv`, `sample_submission.csv` (gitignored).

@@ -70,7 +70,8 @@ Baseline:
 Candidate signals:
   Missing flags; leisure/work and screen/sleep ratios; pairwise interactions;
   quantile bins; ordinal cats; native cats vs drop; CatBoost / ExtraTrees /
-  XGB on nocat; isotonic calibration; rank / AUC-weighted / logistic stack.
+  XGB on nocat; LightGBM extra_trees / low-lr / seed bag; isotonic calibration;
+  rank / AUC-weighted / logistic stack.
 
 Threshold or config plan:
   No decision threshold (AUC ranking). Promotion: candidate OOF AUC >=
@@ -86,10 +87,12 @@ Known risks:
   HistGB on Kaggle sklearn 1.6.1 may cap trees without X_val.
 
 Next experiment:
-  After this surface lands: Kernel-run CatBoost/XGB nocat and ExtraTrees only
-  if local smoke + promotion gates pass. Do not re-run dead-end TE / ratios.
+  Kernel 5-fold `lgbm_nocat_seedbag` (80k mean-of-3-seeds +0.00172). Optional
+  `catboost_nocat` partner (80k tied with LGBM, grid blend +0.001). Do not
+  5-fold LightGBM extra_trees, interactions, or TE.
 
 Rollback or fallback:
   Keep old YAML + oof/<old>/. Submit submissions/lgbm_nocat.csv or
-  blend_nocat.csv. Never retrain to roll back.
+  blend_nocat.csv until seedbag has a non-diagnostic metrics.json.
+  Never retrain to roll back.
 ```

@@ -43,6 +43,39 @@ Debt created: catboost_nocat / xgb_nocat still need a Kernel if we want a third 
 Next iteration: Optional Kernel CatBoost/XGB nocat only. No new arithmetic features.
 ```
 
+## Iteration 2 — remaining GBDT / seed surfaces (this PR)
+
+```text
+Iteration: 2
+Change: bag_seeds in train.py; histgb_nocat_moreiter; lgbm lowlr / extra_trees /
+  seed43 / seed2026 / seedbag; catboost_raw; adversarial AUC in audit_tables;
+  blend YAML for LGBM+CatBoost and seedbag+CatBoost
+Why this mattered: The previous iteration left GBDT hypers, seed averaging,
+  CatBoost-native-cats, and a train/test classifier unexpressed as YAML
+Metric movement (NOT 5-fold, official 80k×3, seed 42 subsample):
+  Control lgbm_nocat_diag80000 0.954317 (reproduced).
+  seedbag 0.956035 (+0.00172). lowlr 0.954917 (+0.00060).
+  catboost_nocat 0.954249; catboost_raw 0.954273.
+  xgb_nocat 0.952417. histgb moreiter 0.953986 (flat vs histgb_nocat).
+  LightGBM extra_trees 0.939472 (−0.015).
+  Best diagnostic blend: 0.70 seedbag + 0.30 CatBoost = 0.956368.
+  LGBM+CatBoost 0.50/0.50 = 0.955326.
+  Full Kernel 5-fold unchanged (lgbm_nocat 0.963771 / blend_nocat 0.963806).
+Slice / shift: adversarial is_test AUC 0.559 (warn; missing-rate gaps 2–3%).
+False positives / negatives: unchanged hard-band story; seedbag is the ensemble
+  the error-analysis loop asked for
+Unexpected errors: LightGBM extra_trees collapsed; CatBoost cats ≈ nocat
+Decision: Next Kernel job is lgbm_nocat_seedbag, then catboost_nocat if extras
+  are on the image. Do not 5-fold extra_trees / moreiter-on-sklearn≥1.7 /
+  catboost_raw. Promote.py correctly refused the diagnostic seedbag.
+Tradeoff accepted: 3× Kernel wall-clock for seedbag; CatBoost still an extra pip
+Lesson captured: Different CV seeds move 80k OOF more than new arithmetic features
+Regression added: parse_bag_seeds + seedbag smoke; adversarial unit tests;
+  optional xgb/catboost smokes (importorskip)
+Debt created: No full 5-fold seedbag/CatBoost metrics.json yet
+Next iteration: Kernel 5-fold seedbag (and optional CatBoost). No new feature flags.
+```
+
 ## How to append
 
 After every Kernel or honest diagnostic, add an Iteration block. Do not edit

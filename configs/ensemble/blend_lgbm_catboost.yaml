@@ -1,0 +1,20 @@
+kind: ensemble
+experiment:
+  name: blend_lgbm_catboost_nocat
+  seed: 42
+  hypothesis: >
+    80k grid put 0.50/0.50 on lgbm_nocat + catboost_nocat (corr 0.986) for
+    +0.001 vs LGBM. A third GBDT family after HistGB.
+  change: grid blend of lgbm_nocat + catboost_nocat OOF
+  expected_effect: Small lift; confirm on full 5-fold OOF only.
+  primary_variable: ensemble.method / catboost partner
+
+ensemble:
+  method: grid
+  components:
+    - lgbm_nocat
+    - catboost_nocat
+
+command: >
+  python scripts/blend_oof.py --experiments lgbm_nocat catboost_nocat
+  --method grid --name blend_lgbm_catboost_nocat --write-experiment-record
