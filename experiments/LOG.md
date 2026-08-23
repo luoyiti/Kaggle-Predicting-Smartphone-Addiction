@@ -75,10 +75,12 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 | stack_lgbm_cb_freq_diag80000 | Logistic stack of 3 | inner-CV logistic | 0.961897 | — | — | No better than 2-model grid. | Prefer grid of LGBM+CB budget |
 | catboost_exactcat_budget_refdist_v1_diag80000 | Target-free original 7500-row CDF / robust-z / source-frequency / kNN | `features.reference.enabled` on top of budget; labels dropped; overlap filter on train+test | 0.961669 | 0.000225 | ~159s | **Flat vs budget 0.961641** (+0.00003). retained=7500, overlap_removed=0, +18 columns. | Do not prioritize a 5-fold; PR11 lattice+refdist 5-fold only +0.00021 |
 | catboost_exactcat_budget_joint_v1_diag80000 | Explicit notif\\|app exact-value token | `exact_categorical.joint_pairs` on top of budget; n_cat=10 | 0.961698 | 0.000280 | 155s | **Flat vs budget 0.961641** (+0.00006). Pairwise CatBoost CTRs already cover the joint key. | Do not prioritize a 5-fold |
+| catboost_exactcat_budget_identity_v1_diag80000 | Exact cats only on notif+app | `exact_categorical.columns` subset; n_cat=2 | 0.958548 | 0.000051 | 48s | **−0.0031 vs budget 0.961641.** The other seven exact copies add ranking, not noise. | Stop; keep all-numeric exact cats |
+| entity_mlp_hash_v1_diag80000 | Hashed-entity residual MLP (not Lookup-Transformer) | torch CPU; hash_buckets=256; 12 epochs | 0.921705 | 0.000943 | 27s | **−0.033 vs lgbm_nocat 0.954317.** Worse than sklearn MLP 0.931. Hashing destroys identity (same lesson as hashed HistGB). Hit epoch cap on every fold. | Stop as a solo; do not 5-fold |
 
-**Promote to Kaggle 5-fold (in this order):** `catboost_exactcat_budget_v1` (this-branch YAML drops original cats; CPU kernel `s6e8-cb-exactcat-budget-dropcats-v1` still running as of 2026-08-23 17:40 UTC), then grid-blend with `lgbm_nocat`. Seed-average after those 5-folds land.
+**Promote to Kaggle 5-fold (in this order):** `catboost_exactcat_budget_v1` (this-branch YAML drops original cats; CPU kernel `s6e8-cb-exactcat-budget-dropcats-v1` still **RUNNING** as of 2026-08-23 17:46 UTC), then grid-blend with `lgbm_nocat`. Seed-average after those 5-folds land.
 
-**Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO, **target-free original-source refdist** (flat vs budget), **explicit notif\\|app joint exact token** (flat vs budget).
+**Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO, **target-free original-source refdist** (flat vs budget), **explicit notif\\|app joint exact token** (flat vs budget), **identity-only exact cats** (notif+app only), **hashed-entity MLP**.
 
 ## Answers so far
 
@@ -164,7 +166,7 @@ The 0.968294 row uses Lookup-Transformer **only as an already-trained blender**.
 Local `kaggle kernels push` only. `submit_to_kaggle` was **not** used. Do **not** overwrite PR #11 slugs
 `yitiluo/s6e8-catboost-exactcat-budget-v1` or `yitiluo/s6e8-catboost-exactcat-v1`.
 
-Status snapshot **2026-08-23 17:40 UTC** (`python3 -m kaggle kernels status`):
+Status snapshot **2026-08-23 17:46 UTC** (`python3 -m kaggle kernels status`):
 
 | experiment YAML | kernel | acc | status |
 | --- | --- | --- | --- |
@@ -197,6 +199,8 @@ Status snapshot **2026-08-23 17:40 UTC** (`python3 -m kaggle kernels status`):
 - Lookup-Transformer as a **solo** model (PR #11 5-fold 0.965339 < CatBoost 0.967681). Do not revive it; optional-torch path is hashed-entity MLP.
 - Target-free original-source refdist on CatBoost budget (80k **0.961669 vs 0.961641**). Code is landed; a dedicated 5-fold is optional confirmation only.
 - Explicit `notifications_per_day|app_opens_per_day` joint exact-cat token on CatBoost budget (80k **0.961698 vs 0.961641**). Pairwise CTRs already cover it; do not 5-fold.
+- Restricting CatBoost exact-cats to notifications+app_opens only (80k **0.958548 vs budget 0.961641**). The other seven exact copies help; do not 5-fold.
+- Hashed-entity residual MLP (80k **0.921705**). Hashing trick destroys identity; not a solo or 5-fold candidate. Not Lookup-Transformer.
 
 ## Code-level paths landed this iteration
 
@@ -206,8 +210,9 @@ Status snapshot **2026-08-23 17:40 UTC** (`python3 -m kaggle kernels status`):
 | `catboost_exactcat_budget_seed7` / `_seed2026` | seed only | mean-blend after 5-folds exist |
 | `catboost_exactcat_budget_gpu_v1` | `runtime.accelerator: gpu` | YAML only; LightGBM unchanged |
 | `catboost_exactcat_budget_gpu_depth6_v1` | depth 6 vs GPU v1 | YAML only |
-| `entity_mlp_hash_v1` | hashed-entity residual MLP | smoke skips without torch; **torch still missing on this VM** — 80k diagnostic not run |
+| `entity_mlp_hash_v1` | hashed-entity residual MLP | 80k **0.921705**; torch CPU installed this turn; **stop as solo** |
 | `catboost_exactcat_budget_joint_v1` | `exact_categorical.joint_pairs` notif\\|app | 80k **flat** vs budget; YAML kept for the isolated lever |
+| `catboost_exactcat_budget_identity_v1` | exact cats = notif+app only | 80k **0.958548** (−0.003 vs budget); stop |
 
 `scripts/prepare_kaggle_kernel.py` copies `features.reference.dataset_source` into kernel `dataset_sources`. `scripts/blend_oof.py --method mean` is the seed-average glue.
 
@@ -218,7 +223,7 @@ Status snapshot **2026-08-23 17:40 UTC** (`python3 -m kaggle kernels status`):
 - This-branch `catboost_exactcat_v1` drop-cats ablation kernel already **RUNNING**.
 - `lgbm_freq_v1` 5-fold kernel already **RUNNING**.
 - GPU `catboost_exactcat_budget_gpu_v1` kernel **QUEUED**. `gpu_depth6_v1` still unrun (optional; do not stampede GPU).
-- Optional-torch `entity_mlp_hash_v1` ranking when torch is installed (not Lookup-Transformer). This VM: `ModuleNotFoundError: No module named 'torch'` — skip stands.
+- Optional-torch `entity_mlp_hash_v1` 80k diagnostic **done** (0.921705). Do not 5-fold. Torch is now installed on this VM; the CI skip-without-torch path remains.
 - Pseudo-labelling (high leak risk) and calibration (cannot move ROC-AUC) stay rejected.
 
 ```bash
