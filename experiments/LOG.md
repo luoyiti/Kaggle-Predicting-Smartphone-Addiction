@@ -30,7 +30,7 @@ The three categoricals are dropped. No coverage features.
 | blend_nocat_freq_cb_gpu | Two LGBMs + GPU CB | Grid 0.10 nocat + 0.05 freq + 0.85 GPU CB | 0.967891 | — | — | Tiny lift vs 2-way. | Optional |
 | blend_nocat_freq_histlong_cb_gpu | Tree trio + GPU CB | Grid 0.05/0.05/0.10/0.80 | **0.967904** | — | — | Best this-branch **cats-dropped** 5-fold so far. | Re-blend after CPU drop-cats |
 
-**CPU drop-cats 5-fold is NOT in LOG.md.** Kernel [s6e8-cb-exactcat-budget-dropcats-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1) (`configs/catboost_exactcat_budget_v1.yaml`) was still **RUNNING** at the 2026-08-23 18:21 UTC harvest. Do not treat the GPU row as that CPU YAML.
+**CPU drop-cats 5-fold is NOT in LOG.md.** Kernel [s6e8-cb-exactcat-budget-dropcats-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1) (`configs/catboost_exactcat_budget_v1.yaml`) was still **RUNNING** at the 2026-08-23 18:25 UTC harvest. Do not treat the GPU row as that CPU YAML.
 
 Did **not** submit to the leaderboard. Did **not** add coverage features. Did **not** drop notifications/app_opens.
 
@@ -91,7 +91,7 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 | catboost_exactcat_budget_plain_v1_diag80000 | Ordered vs Plain boosting | `model.params.boosting_type: Plain` | 0.961641 | 0.000200 | 120s | **Identical to budget Ordered 0.961641** (same OOF, std, folds to reported precision). Not a ranking lever on 80k. | Do not 5-fold for lift; optional runtime tweak |
 | catboost_exactcat_budget_bernoulli_v1_diag80000 | Bernoulli row subsample | `model.params.bootstrap_type: Bernoulli` | 0.961279 | 0.000240 | 119s | **−0.00036 vs budget 0.961641.** Slightly worse solo. | Do not 5-fold |
 
-**Promote to Kaggle 5-fold (in this order):** harvest CPU `catboost_exactcat_budget_v1` drop-cats (still **RUNNING** as of 2026-08-23 18:21 UTC), then grid-blend with `lgbm_nocat` / `lgbm_freq_v1` / histlong. Seed-average after seed kernels land. GPU depth-6 is already pushed.
+**Promote to Kaggle 5-fold (in this order):** harvest CPU `catboost_exactcat_budget_v1` drop-cats (still **RUNNING** as of 2026-08-23 18:25 UTC), then grid-blend with `lgbm_nocat` / `lgbm_freq_v1` / histlong. Seed-average after seed kernels land. GPU depth-6 is already pushed.
 
 **Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO, **target-free original-source refdist** (flat vs budget), **explicit notif\\|app joint exact token** (flat vs budget), **identity-only exact cats** (notif+app only), **hashed-entity MLP**, **Plain vs Ordered CatBoost** (identical 80k), **Bernoulli bootstrap** (−0.00036 vs budget).
 
@@ -184,7 +184,7 @@ The 0.968294 row uses Lookup-Transformer **only as an already-trained blender**.
 Local `kaggle kernels push` only. `submit_to_kaggle` was **not** used. Do **not** overwrite PR #11 slugs
 `yitiluo/s6e8-catboost-exactcat-budget-v1` or `yitiluo/s6e8-catboost-exactcat-v1`.
 
-Status snapshot **2026-08-23 18:21 UTC** (`python3 -m kaggle kernels status`):
+Status snapshot **2026-08-23 18:25 UTC** (`python3 -m kaggle kernels status`):
 
 | experiment YAML | kernel | acc | status |
 | --- | --- | --- | --- |
