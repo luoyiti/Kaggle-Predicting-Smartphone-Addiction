@@ -105,3 +105,29 @@ Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submi
 - Mean-blending nocat with OOF exact-value TE (≤ +0.00002).
 - `other_screen` / `component_sum` / `weekend − daily` / value-frequency / fractional parts as extra GBM columns (residual vs nocat ≈ 0).
 - Another LGBM+HistGB probability blend pass.
+
+## Modeling surface added for Kernel follow-up (no new 5-fold score yet)
+
+These configs/scripts exist so the remaining families can be run without writing trainers. They are **not** competition scores until `oof/<name>/metrics.json` exists from a non-diagnostic Kernel (or equivalent) run.
+
+| name | primary variable | run |
+| --- | --- | --- |
+| `lgbm_nocat_missflags` | missing indicators | `python scripts/train.py --config configs/lgbm_nocat_missflags.yaml` |
+| `lgbm_nocat_leisure_work` | leisure/work ratio | train.py |
+| `lgbm_nocat_interactions` | pairwise products | train.py |
+| `lgbm_nocat_bins` | quantile bins | train.py |
+| `lgbm_ordinal_cats` | ordinal cat maps | train.py |
+| `lgbm_cat_missing_level` | `__NA__` cat level | train.py |
+| `xgb_nocat` | XGBoost on nocat | train.py (needs xgboost) |
+| `catboost_nocat` | CatBoost on nocat | train.py (needs catboost) |
+| `extratrees_nocat` | ExtraTrees | train.py; start with `--max-train-rows 80000 --n-splits 3` |
+| `logreg_nocat` | linear + miss flags | train.py |
+| rank / auc_weighted blend | ensemble method | `scripts/blend_oof.py --method rank\|auc_weighted` |
+| logistic stack | stacker | `scripts/stack_oof.py` |
+| isotonic / platt | calibration | `scripts/calibrate_oof.py` |
+| promotion | vs `lgbm_nocat` | `scripts/promote.py --candidate <name>` |
+| data contract audit | schema/shift/leak | `scripts/audit_data.py` |
+| slices / error analysis | eval loop | `scripts/eval_slices.py`, `scripts/error_analysis.py` |
+
+Human report: `reports/mle_modeling_report.html`. Contracts: `docs/mle/`.
+

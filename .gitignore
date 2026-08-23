@@ -27,11 +27,12 @@ secrets/
 data/raw/*
 !data/raw/.gitkeep
 
-# Other generated reports stay local; keep the EDA HTML and overview index in git.
+# Other generated reports stay local; keep the EDA HTML, TE report, modeling report, and overview index in git.
 reports/**
 !reports/.gitkeep
 !reports/eda_report.html
 !reports/lgbm_nocat_exact_te_v1.html
+!reports/mle_modeling_report.html
 !reports/index.html
 !reports/vercel.json
 

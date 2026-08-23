@@ -127,7 +127,7 @@ That renames the experiment to `lgbm_nocat_diag80000` and skips writing `experim
 Current best single-model YAML (from 80k diagnostics, not a full-data score): `configs/lgbm_nocat.yaml`. Blend partner: `configs/histgb_nocat.yaml`.
 
 ```bash
-python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid
+python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid --name blend_nocat --write-experiment-record
 ```
 
 ## Cloud workflow (daily loop)
@@ -164,7 +164,25 @@ runtime:
   enable_internet: true
 ```
 
-`--accelerator` on `scripts/train.py` and the workflow input override YAML. Model code only sets GPU device keys when `accelerator=gpu` and the backend understands it (LightGBM `device_type`, future XGBoost/CatBoost hooks).
+`--accelerator` on `scripts/train.py` and the workflow input override YAML. Model code only sets GPU device keys when `accelerator=gpu` and the backend understands it (LightGBM `device_type`, XGBoost `device`, CatBoost `task_type`).
+
+## Modeling workflow (MLE)
+
+Contracts, ledger, and path coverage live in `docs/mle/`. The human report is `reports/mle_modeling_report.html`.
+
+New experiment = new `configs/<unique>.yaml`. Do not edit YAML that already has a Kernel `metrics.json`.
+
+```bash
+python scripts/train.py --config configs/lgbm_nocat.yaml
+python scripts/audit_data.py --config configs/baseline.yaml
+python scripts/eval_slices.py --experiment lgbm_nocat
+python scripts/error_analysis.py --experiment lgbm_nocat
+python scripts/calibrate_oof.py --experiment lgbm_nocat --method isotonic
+python scripts/stack_oof.py --experiments lgbm_nocat histgb_nocat
+python scripts/promote.py --candidate blend_nocat --baseline lgbm_nocat
+```
+
+Post-hoc scripts need `oof/<name>/` from a prior train (gitignored). ExtraTrees is in the default sklearn stack; CatBoost/XGBoost remain optional extras.
 
 ## Tests
 
@@ -176,6 +194,8 @@ python scripts/train.py --help
 python scripts/eda.py --help
 python scripts/build_reports_index.py --help
 python scripts/validate_configs.py
+python scripts/blend_oof.py --help
+python scripts/promote.py --help
 pytest -q
 ```
 
@@ -197,4 +217,4 @@ Numeric (many contain NaNs): `age`, `daily_screen_time_hours`, `social_media_hou
 
 Categorical: `gender` (Male / Female / Other), `stress_level` (Low / Medium / High), `academic_work_impact` (Yes / No).
 
-Missingness is widespread (including categoricals). Positive class is roughly 43%. Trees handle NaNs natively; baseline also adds `n_missing` and a few usage ratios.
+Missingness is widespread (including categoricals). Positive class is roughly **71%**. Trees handle NaNs natively; `lgbm_nocat` uses the 9 raw numerics with categoricals dropped. Baseline YAML still adds `n_missing` and usage ratios (diagnostic-loser vs raw).
