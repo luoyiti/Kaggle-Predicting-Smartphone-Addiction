@@ -268,6 +268,30 @@ def test_l2_12_budget_config_isolates_l2_leaf_reg():
     assert left == right
 
 
+def test_border128_budget_config_isolates_border_count():
+    from copy import deepcopy
+    from pathlib import Path
+
+    import yaml
+
+    base = yaml.safe_load(Path("configs/catboost_exactcat_budget_v1.yaml").read_text(encoding="utf-8"))
+    border = yaml.safe_load(
+        Path("configs/catboost_exactcat_budget_border128_v1.yaml").read_text(encoding="utf-8")
+    )
+    assert border["experiment"]["name"] == "catboost_exactcat_budget_border128_v1"
+    assert border["model"]["params"]["border_count"] == 128
+    assert "border_count" not in (base["model"]["params"] or {})
+    left = deepcopy(base)
+    right = deepcopy(border)
+    for blob in (left, right):
+        blob["experiment"].pop("name")
+        blob["experiment"].pop("hypothesis")
+        blob["experiment"].pop("change")
+        blob["experiment"].pop("model_version")
+        blob["model"]["params"].pop("border_count", None)
+    assert left == right
+
+
 def test_hardband_config_isolates_hard_band():
     from copy import deepcopy
     from pathlib import Path
