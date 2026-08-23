@@ -1,0 +1,18 @@
+kind: ensemble
+experiment:
+  name: blend_auc_weighted_lgbm_histgb
+  seed: 42
+  hypothesis: Weighting by (OOF AUC − 0.5) should recover a blend close to grid without a discrete search.
+  change: auc_weighted blend of lgbm_nocat + histgb_nocat
+  expected_effect: Match grid 0.85/0.15 within noise.
+  primary_variable: ensemble.method
+
+ensemble:
+  method: auc_weighted
+  components:
+    - lgbm_nocat
+    - histgb_nocat
+
+command: >
+  python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat
+  --method auc_weighted --name blend_auc_weighted_lgbm_histgb --write-experiment-record

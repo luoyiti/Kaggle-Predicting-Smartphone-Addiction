@@ -1,0 +1,20 @@
+kind: ensemble
+experiment:
+  name: stack_logistic_lgbm_histgb
+  seed: 42
+  hypothesis: A fold-safe logistic stacker can reweight GBDT families better than a 2-weight grid.
+  change: scripts/stack_oof.py on lgbm_nocat + histgb_nocat
+  expected_effect: Prior nocat+TE stack hurt; this pair may be flat vs grid. Fail closed vs lgbm_nocat.
+  primary_variable: logistic_stack
+
+ensemble:
+  method: logistic_stack
+  components:
+    - lgbm_nocat
+    - histgb_nocat
+  C: 1.0
+  n_splits: 5
+
+command: >
+  python scripts/stack_oof.py --experiments lgbm_nocat histgb_nocat
+  --name stack_logistic_lgbm_histgb --write-experiment-record

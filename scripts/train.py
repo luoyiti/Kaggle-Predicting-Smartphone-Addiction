@@ -100,7 +100,7 @@ def main() -> None:
     artifacts = train_cv(X_train, test_df, y, config)
     artifacts["runtime_seconds"] = round(time.perf_counter() - started, 3)
     artifacts["git_commit"] = git_commit
-    written = save_artifacts(artifacts, config)
+    written = save_artifacts(artifacts, config, slice_df=X_train)
     print("wrote:")
     for key, path in written.items():
         print(f"  {key}: {path}")

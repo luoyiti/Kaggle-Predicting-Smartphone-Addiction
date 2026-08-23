@@ -18,6 +18,24 @@ DEFAULT_OTHER_SCREEN_PARTS = (
     "gaming_hours",
     "work_study_hours",
 )
+DEFAULT_INTERACTION_PAIRS = (
+    ("daily_screen_time_hours", "sleep_hours"),
+    ("social_media_hours", "gaming_hours"),
+    ("daily_screen_time_hours", "weekend_screen_time"),
+    ("social_media_hours", "work_study_hours"),
+    ("notifications_per_day", "app_opens_per_day"),
+)
+DEFAULT_ORDINAL_MAPS = {
+    "stress_level": {"Low": 0, "Medium": 1, "High": 2},
+    "academic_work_impact": {"No": 0, "Yes": 1},
+    "gender": {"Male": 0, "Female": 1, "Other": 2},
+}
+DEFAULT_QUANTILE_BIN_COLUMNS = (
+    "daily_screen_time_hours",
+    "sleep_hours",
+    "weekend_screen_time",
+)
+MISSING_CATEGORY_LEVEL = "__NA__"
 
 
 def _ratio(numer: pd.Series, denom: pd.Series, eps: float) -> pd.Series:
@@ -131,6 +149,48 @@ def add_engineered_features(df: pd.DataFrame, config: dict[str, Any]) -> pd.Data
             terms.append(out[col] / float(threshold))
         out["or_usage_score"] = pd.concat(terms, axis=1).max(axis=1)
 
+    if eng.get("add_leisure_work_ratio", False):
+        leisure = out["social_media_hours"] + out["gaming_hours"]
+        out["leisure_work_ratio"] = _ratio(leisure, out["work_study_hours"], eps)
+
+    if eng.get("add_interactions", False):
+        pairs = eng.get("interaction_pairs") or DEFAULT_INTERACTION_PAIRS
+        for pair in pairs:
+            if len(pair) != 2:
+                raise ValueError(f"interaction pair must have two columns, got {pair!r}")
+            left, right = str(pair[0]), str(pair[1])
+            if left not in out.columns or right not in out.columns:
+                raise KeyError(f"interaction columns {(left, right)} missing")
+            out[f"{left}_x_{right}"] = out[left] * out[right]
+
+    if eng.get("add_ordinal_cats", False):
+        maps = eng.get("ordinal_maps") or DEFAULT_ORDINAL_MAPS
+        suffix = str(eng.get("ordinal_suffix", "_ord"))
+        for col, mapping in maps.items():
+            if col not in out.columns:
+                continue
+            out[f"{col}{suffix}"] = out[col].map(mapping).astype("float64")
+
+    if eng.get("add_quantile_bins", False):
+        cols = list(eng.get("quantile_bin_columns") or DEFAULT_QUANTILE_BIN_COLUMNS)
+        n_bins = int(eng.get("quantile_bins", 5))
+        suffix = str(eng.get("quantile_suffix", "_qbin"))
+        for col in cols:
+            if col not in out.columns:
+                raise KeyError(f"quantile bin column {col!r} is missing")
+            try:
+                binned = pd.qcut(out[col], q=n_bins, labels=False, duplicates="drop")
+            except ValueError:
+                binned = pd.Series(np.nan, index=out.index)
+            out[f"{col}{suffix}"] = pd.Categorical(binned)
+
+    if eng.get("encode_missing_as_category", False):
+        fill = str(eng.get("missing_category_level", MISSING_CATEGORY_LEVEL))
+        for col in categorical:
+            if col in out.columns:
+                as_str = out[col].astype("string")
+                out[col] = as_str.fillna(fill)
+
     return out
 
 
@@ -139,6 +199,12 @@ def cast_categoricals(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
     for col in config["features"]["categorical"]:
         if col in out.columns:
             out[col] = out[col].astype("category")
+    eng = (config.get("features") or {}).get("engineering") or {}
+    if eng.get("add_quantile_bins", False):
+        suffix = str(eng.get("quantile_suffix", "_qbin"))
+        for col in out.columns:
+            if str(col).endswith(suffix) and col not in config["features"]["categorical"]:
+                out[col] = out[col].astype("category")
     return out
 
 
@@ -149,6 +215,13 @@ def feature_columns(df: pd.DataFrame, config: dict[str, Any]) -> list[str]:
     drop = {id_col, target, *extra_drop}
     cols = [c for c in df.columns if c not in drop]
     return cols
+
+
+def categorical_feature_names(df: pd.DataFrame, config: dict[str, Any]) -> list[str]:
+    """Columns LightGBM/CatBoost should treat as categorical (dtype or YAML list)."""
+    named = [c for c in config["features"]["categorical"] if c in df.columns]
+    typed = [c for c in df.columns if str(df[c].dtype) == "category" and c not in named]
+    return named + typed
 
 
 def transform(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:

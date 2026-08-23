@@ -1,0 +1,23 @@
+kind: calibration
+experiment:
+  name: lgbm_nocat_cal_platt
+  seed: 42
+  hypothesis: Platt scaling (logistic on OOF scores) is smoother than isotonic and less prone to stepwise ties.
+  change: scripts/calibrate_oof.py --experiment lgbm_nocat --method platt
+  expected_effect: Small ECE drop; AUC unchanged. Compare to isotonic on the same OOF.
+  primary_variable: calibration.method
+
+calibration:
+  method: platt
+  source_experiment: lgbm_nocat
+  n_splits: 5
+
+promotion:
+  baseline_experiment: lgbm_nocat
+  min_oof_auc_delta: -0.0005
+  require_ece: true
+  max_ece: 0.08
+
+command: >
+  python scripts/calibrate_oof.py --experiment lgbm_nocat --method platt
+  --name lgbm_nocat_cal_platt --write-experiment-record

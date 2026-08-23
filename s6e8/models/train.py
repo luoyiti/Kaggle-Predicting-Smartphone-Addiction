@@ -16,7 +16,8 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 
 from s6e8 import __version__ as package_version
 from s6e8.data import PROJECT_ROOT, load_sample_submission, resolve_path
-from s6e8.features import feature_columns, transform
+from s6e8.features import categorical_feature_names, feature_columns, transform
+from s6e8.metrics import calibration_summary, slice_metrics
 from s6e8.runtime import (
     apply_model_device,
     experiment_summary,
@@ -40,6 +41,9 @@ BACKEND_ALIASES = {
     "logreg": "logreg",
     "logistic": "logreg",
     "logisticregression": "logreg",
+    "extratrees": "extratrees",
+    "extra_trees": "extratrees",
+    "et": "extratrees",
 }
 
 
@@ -173,7 +177,7 @@ def _prepare_xy(
     train_feat = transform(train_df, config)
     test_feat = transform(test_df, config)
     cols = feature_columns(train_feat, config)
-    cat_cols = [c for c in config["features"]["categorical"] if c in cols]
+    cat_cols = [c for c in categorical_feature_names(train_feat[cols], config) if c in cols]
     return train_feat[cols], test_feat[cols], y.to_numpy(), cols, cat_cols
 
 
@@ -279,6 +283,7 @@ def train_cv(
         "catboost": _fold_catboost,
         "histgb": _fold_histgb,
         "logreg": _fold_logreg,
+        "extratrees": _fold_extratrees,
     }
     return _run_cv(train_df, test_df, y, config, trainers[backend])
 
@@ -476,23 +481,72 @@ def _fold_logreg(X_tr, y_tr, X_va, y_va, X_test, ctx):
     params.setdefault("solver", "lbfgs")
     cat_cols = ctx["cat_cols"]
     num_cols = [c for c in X_tr.columns if c not in cat_cols]
-    pre = ColumnTransformer(
-        [
-            ("num", Pipeline([
-                ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler()),
-            ]), num_cols),
+    transformers = [
+        ("num", Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+        ]), num_cols),
+    ]
+    if cat_cols:
+        transformers.append(
             ("cat", Pipeline([
                 ("imputer", SimpleImputer(strategy="most_frequent")),
                 ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
             ]), cat_cols),
-        ]
-    )
+        )
+    pre = ColumnTransformer(transformers)
     clf = Pipeline([("pre", pre), ("model", LogisticRegression(random_state=ctx["seed"], **params))])
     clf.fit(X_tr, y_tr)
     va_pred = clf.predict_proba(X_va)[:, 1]
     te_pred = clf.predict_proba(X_test)[:, 1]
     return va_pred, te_pred, 0
+
+
+def _codes_with_nan(series: pd.Series) -> pd.Series:
+    if str(series.dtype) == "category":
+        codes = series.cat.codes.astype("float64")
+        return codes.mask(codes < 0, np.nan)
+    cat = pd.Categorical(series)
+    codes = pd.Series(cat.codes, index=series.index, dtype="float64")
+    return codes.mask(codes < 0, np.nan)
+
+
+def _fold_extratrees(X_tr, y_tr, X_va, y_va, X_test, ctx):
+    """sklearn ExtraTrees: no native NaN, so median-impute after encoding cats."""
+    from sklearn.ensemble import ExtraTreesClassifier
+    from sklearn.impute import SimpleImputer
+
+    model_cfg = ctx["config"]["model"]
+    params = dict(model_cfg.get("params") or {})
+    params.setdefault("random_state", ctx["seed"])
+    params.setdefault("n_estimators", int(model_cfg.get("num_boost_round", 200)))
+    params.setdefault("n_jobs", -1)
+    params = _filter_init_kwargs(ExtraTreesClassifier, params)
+    cat_cols = ctx["cat_cols"]
+    X_tr_n = X_tr.copy()
+    X_va_n = X_va.copy()
+    X_te_n = X_test.copy()
+    for col in cat_cols:
+        if col in X_tr_n.columns:
+            X_tr_n[col] = _codes_with_nan(X_tr_n[col])
+            X_va_n[col] = _codes_with_nan(X_va_n[col])
+            X_te_n[col] = _codes_with_nan(X_te_n[col])
+    for frame in (X_tr_n, X_va_n, X_te_n):
+        for col in frame.columns:
+            if str(frame[col].dtype) == "category":
+                frame[col] = _codes_with_nan(frame[col])
+            elif not pd.api.types.is_numeric_dtype(frame[col]):
+                frame[col] = _codes_with_nan(frame[col])
+    imputer = SimpleImputer(strategy="median")
+    X_tr_i = imputer.fit_transform(X_tr_n)
+    X_va_i = imputer.transform(X_va_n)
+    X_te_i = imputer.transform(X_te_n)
+    clf = ExtraTreesClassifier(**params)
+    clf.fit(X_tr_i, y_tr)
+    best_iter = int(getattr(clf, "n_estimators", 0) or 0)
+    va_pred = clf.predict_proba(X_va_i)[:, 1]
+    te_pred = clf.predict_proba(X_te_i)[:, 1]
+    return va_pred, te_pred, best_iter
 
 
 def _mean_feature_importance(
@@ -509,6 +563,7 @@ def _mean_feature_importance(
 def save_artifacts(
     artifacts: dict[str, Any],
     config: dict[str, Any],
+    slice_df: pd.DataFrame | None = None,
 ) -> dict[str, str]:
     output_cfg = config.get("output", {})
     oof_dir = _oof_dir(config)
@@ -579,6 +634,11 @@ def save_artifacts(
         "model_name": config["model"]["name"],
         "config_path": config.get("_config_path"),
     }
+    if slice_df is not None:
+        metrics["slices"] = slice_metrics(
+            artifacts["y"], artifacts["oof"], slice_df, min_n=50
+        )
+        metrics["calibration"] = calibration_summary(artifacts["y"], artifacts["oof"])
     te_cfg = artifacts.get("te_config")
     if te_cfg:
         metrics["target_encoding"] = te_cfg

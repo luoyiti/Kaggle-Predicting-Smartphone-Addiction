@@ -1,0 +1,23 @@
+kind: calibration
+experiment:
+  name: lgbm_nocat_cal_isotonic
+  seed: 42
+  hypothesis: Isotonic regression on OOF can cut ECE without a material AUC drop (AUC ranking is invariant to monotone maps except ties).
+  change: scripts/calibrate_oof.py --experiment lgbm_nocat --method isotonic
+  expected_effect: ECE down, AUC change ≈ 0. Promote only if AUC delta ≥ -0.0005.
+  primary_variable: calibration.method
+
+calibration:
+  method: isotonic
+  source_experiment: lgbm_nocat
+  n_splits: 5
+
+promotion:
+  baseline_experiment: lgbm_nocat
+  min_oof_auc_delta: -0.0005
+  require_ece: true
+  max_ece: 0.08
+
+command: >
+  python scripts/calibrate_oof.py --experiment lgbm_nocat --method isotonic
+  --name lgbm_nocat_cal_isotonic --write-experiment-record

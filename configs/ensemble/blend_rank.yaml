@@ -1,0 +1,18 @@
+kind: ensemble
+experiment:
+  name: blend_rank_lgbm_histgb
+  seed: 42
+  hypothesis: Rank-average is scale-free and may help if HistGB probabilities are miscalibrated vs LightGBM.
+  change: rank blend of lgbm_nocat + histgb_nocat OOF
+  expected_effect: Near grid blend; run only when both parent OOFs exist.
+  primary_variable: ensemble.method
+
+ensemble:
+  method: rank
+  components:
+    - lgbm_nocat
+    - histgb_nocat
+
+command: >
+  python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat
+  --method rank --name blend_rank_lgbm_histgb --write-experiment-record
