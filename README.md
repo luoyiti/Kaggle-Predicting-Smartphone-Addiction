@@ -124,18 +124,19 @@ python scripts/train.py --config configs/lgbm_nocat.yaml --max-train-rows 80000 
 
 That renames the experiment to `lgbm_nocat_diag80000` and skips writing `experiments/*.json`. Record the ranking in `experiments/LOG.md`. Full 5-fold jobs belong on Kaggle Kernels.
 
-Current best single-model YAML (from 80k diagnostics, not a full-data score): `configs/lgbm_nocat.yaml`. Blend partner: `configs/histgb_nocat.yaml`.
+Current best **official 5-fold** single-model YAML: `configs/lgbm_nocat.yaml` (OOF 0.963771). Blend partner: `configs/histgb_nocat.yaml` (blend 0.963806).
+
+Next Kernel candidate (full-data **3-fold diagnostic** 0.967878, not a 5-fold score): `configs/catboost_exactcat_budget_v1.yaml`. Ablation without budget: `configs/catboost_exactcat_v1.yaml`. See `experiments/LOG.md`.
 
 ```bash
 python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid
 ```
 
-Next modeling YAMLs (one scientific variable each; run on Kaggle Kernels for a real 5-fold score) live beside them: CatBoost exact-value categoricals (`configs/catboost_exactcat_v1.yaml`), longer HistGB, XGBoost on the nocat view, LGBM seed/HPO variants, fold-safe frequency encoding, and a sklearn MLP. See `experiments/LOG.md`.
-
-Honest stacked OOF (logistic/ridge, inner CV):
+Once Kaggle 5-fold OOF exists for CatBoost exact-cat:
 
 ```bash
-python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_v1 --method stack_logistic
+python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1 --method grid
+python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1 --method stack_logistic
 ```
 
 ## Cloud workflow (daily loop)

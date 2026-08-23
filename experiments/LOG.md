@@ -31,6 +31,7 @@ unseen-value rates are fake. These rows use the **full train**.
 | experiment | hypothesis | change | CV AUC | fold std | runtime | conclusion | next step |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | lgbm_nocat_exact_te_v1_diag | Exact numeric values carry playground identity that raw splits miss | `lgbm_nocat` + fold-safe LOO TE on notif/app/sleep/age/gaming/work; 3-fold full data | 0.923636 | 0.000601 | 17s | **−0.040 vs lgbm_nocat.** Unseen=0 (not leakage). Best iter 20–31. `age_exact_te` stole 17% gain; predictions compressed. Identity is real univariately (notif TE 0.76 vs raw 0.49) but already inside deep LGBM. **Stop TE-in-GBM. No 5-fold.** | Do not inject lookup TE into LightGBM. Residual of nocat is not in generator arithmetic either |
+| catboost_exactcat_budget_v1_diag | CatBoost ordered CTRs on exact-value copies + screen budget | 9 numeric + 9 `__exact` cats + budget arithmetic; 3-fold full 691,369 rows | **0.967878** | 0.000296 | 2026s | **+0.004 vs lgbm_nocat 5-fold 0.963771, but n_splits differs (3 vs 5).** Folds 0.96747–0.96817. Best iter 2629–3069. Same protocol family as the TE screen (full data, 3-fold), which failed. Not an official 5-fold. | **Kaggle 5-fold** `configs/catboost_exactcat_budget_v1.yaml`; then grid-blend with `lgbm_nocat` |
 
 ## Diagnostic ranking (80k rows, 3-fold, seed 42 — not a leaderboard number)
 
@@ -90,7 +91,8 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 **What model fits this generator?**
 
 - Trees, not linear models (logreg 0.911 vs GBM 0.954 on the same 80k protocol).
-- LightGBM ≳ HistGB > XGBoost at the default-ish params used here.
+- LightGBM ≳ HistGB > XGBoost at the default-ish params used here **on raw/nocat numerics**.
+- **CatBoost ordered CTRs on exact-value copies are a different mechanism than LGBM TE** and win on both 80k (+0.006) and full-data 3-fold (0.967878 diagnostic). Do not confuse this with TE-in-LightGBM, which failed.
 - Explicit coverage features (`strong3_row_mean`) and the original OR-score do not beat native missing handling.
 - Fold-safe exact-value TE is a real univariate signal and a harmful GBM feature (early-stopping hijack). Do not put lookup TE into `lgbm_nocat`.
 
@@ -120,9 +122,10 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 
 Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submissions/blend_nocat.csv`). Do not `kaggle competitions submit` unless explicitly asked.
 
-## Full-data screens (done, no 5-fold follow-up)
+## Full-data screens (done, no 5-fold follow-up yet)
 
 1. `configs/lgbm_nocat_exact_te_v1.yaml` with `--n-splits 3` — OOF 0.923636. Report: `reports/lgbm_nocat_exact_te_v1.html`.
+2. `configs/catboost_exactcat_budget_v1.yaml` with `--n-splits 3` — OOF **0.967878** (diagnostic; 691,369 rows; folds 0.96747 / 0.96800 / 0.96817). **Not a 5-fold score.** Promote this YAML to a Kaggle Kernel 5-fold next.
 
 ## Not worth more budget
 
@@ -142,46 +145,28 @@ Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submi
 - Hashing exact-value cats into ≤255 bins for HistGB (destroys identity; raw exact cats exceed max_bins).
 - sklearn MLP on nocat numerics (0.931 on 80k).
 
-## Remaining paths armed in this iteration (no AUC until metrics.json)
+## Configs ready for Kaggle 5-fold
 
-Configs below isolate **one scientific variable** each. They are ready for Kaggle
-Kernels (`n_splits=5`, full train). This VM may run `--max-train-rows 80000
---n-splits 3` ranking only. Do not treat those numbers as competition scores.
+80k ranking and a full-data 3-fold screen are recorded above. They are **not**
+official 5-fold scores. Run these on Kaggle Kernels next:
 
-| config | isolated variable | why it is still open on main |
-| --- | --- | --- |
-| `catboost_numeric_v1` | CatBoost family on nocat numerics | Trainer existed; no YAML. Control for exact-cat. |
-| `catboost_exactcat_v1` | Exact numeric copies as CatBoost categories | LGBM TE of the same identity **hurt**. CatBoost ordered CTRs are a different mechanism. Public S6E8 OOF libraries also credit float-as-category families. |
-| `catboost_exactcat_budget_v1` | Screen-budget remainder / share / awake hours | Playground obeys `daily ≥ social+gaming+work`; original source does not. |
-| `catboost_exactcat_lattice_v1` | Fractional part + first decimal digit | Digit-derived cats showed up in public OOF libraries; residual vs nocat was ~0 for LGBM, untested in CatBoost. |
-| `catboost_origcats_v1` | Keep gender/stress/academic in CatBoost | Noise for LGBM; CatBoost CTR might still use them. |
-| `histgb_nocat_long_v1` | HistGB `max_iter=2500` | Full 5-fold histgb_nocat capped at 500 trees. |
-| `histgb_exactcat_v1` | HistGB native cats on exact copies | Different cat implementation than CatBoost CTR. |
-| `xgb_nocat` | XGBoost on the nocat view | `xgb_raw` still had the three categoricals. |
-| `lgbm_nocat_seed7` / `lgbm_nocat_seed2026` | Seed only | Seed average of the current best single model. |
-| `lgbm_nocat_extratrees` | `extra_trees=true` | Complementary splits on the hard p∈(0.3,0.7) band. |
-| `lgbm_nocat_mono` | Monotone constraints on usage/sleep | Domain generator is roughly monotone. |
-| `lgbm_nocat_lr02` | `learning_rate=0.02` | Best iter 1549–1912 at lr=0.05; slower fit. |
-| `lgbm_exactcat_v1` | LightGBM categorical splits on exact copies | Negative control vs CatBoost CTR. |
-| `lgbm_freq_v1` | Fold-safe value frequency (no labels) | Distinct from TE; rarity without early-stopping hijack. |
-| `logreg_exact_te_v1` | Logistic + fold-safe TE of all 9 numerics | logreg_raw was too weak to stack; identity TE may not be. |
-| `mlp_nocat` | sklearn MLP on nocat numerics | Architecture diversity; expected high correlation with trees. |
-
-Blend/stack once OOF exists:
+1. `configs/catboost_exactcat_budget_v1.yaml` (primary)
+2. `configs/catboost_exactcat_v1.yaml` (ablation: drop budget)
+3. `configs/lgbm_freq_v1.yaml` (small 80k lift; cheap)
+4. `configs/histgb_nocat_long_v1.yaml` (addresses the 500-iter cap on full data)
+5. `configs/lgbm_nocat_seed7.yaml` + `lgbm_nocat_seed2026.yaml` then mean-blend with `lgbm_nocat`
+6. Grid-blend `lgbm_nocat` with the CatBoost 5-fold OOF (`scripts/blend_oof.py --method grid`)
 
 ```bash
-python scripts/blend_oof.py --experiments lgbm_nocat lgbm_nocat_seed7 lgbm_nocat_seed2026 --method mean --name lgbm_nocat_seedavg
-python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_v1 histgb_nocat_long_v1 --method stack_logistic --name stack_lgbm_cb_hist
+python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1 --method grid --name blend_lgbm_cb_budget
 ```
 
-### Still unexplored after this code lands
+### Still unexplored after this iteration
 
-- Target-free **reference distribution** features from the 7,500-row source (do **not** append those rows; component dependence differs).
-- TabM / RealMLP / FT-Transformer (public notebooks; optional `torch`; Lookup-Transformer on a draft branch failed its solo gate).
-- CatBoost / XGBoost GPU HPO (depth, l2, subsample grids) after the exact-cat control is scored.
-- Pseudo-labelling / test-time augmentation. High leak risk on playground identity.
-- Sample weights, class rebalancing (metric is ROC-AUC; 71% positive is already ranked).
-- Calibration (Platt/isotonic): monotone, so it cannot move ROC-AUC of a single model.
+- Target-free **reference distribution** features from the 7,500-row source (do **not** append those rows).
+- TabM / RealMLP / FT-Transformer (optional `torch`). Draft PR #11 Lookup-Transformer failed its solo gate.
+- CatBoost GPU HPO (depth / l2 / subsample) after the 5-fold exact-cat+budget score exists.
+- Seed-averaged CatBoost (expensive; do after the seed-42 5-fold).
+- Pseudo-labelling (high leak risk on playground identity).
+- Calibration (monotone; cannot move single-model ROC-AUC).
 - Mixing original labelled rows into train (already rejected).
-
-A separate draft PR (`agent/histgb-nocat-long-v1`) reports 0.9683 honest OOF from CatBoost exact-cat + budget + refdist + Lookup blend. That work is **not on main**. This branch re-implements the config-driven levers on main without copying the neural Lookup path.
