@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from s6e8.data import load_config
+from s6e8.reference_features import dataset_sources_for_kernel
 from s6e8.runtime import apply_runtime_override, get_git_commit, normalize_accelerator
 
 DEFAULT_SLUG = "s6e8-cloud-train"
@@ -115,6 +116,7 @@ def write_metadata(
     enable_internet: bool,
     competition_slug: str,
     gpu_machine_shape: str,
+    dataset_sources: list[str] | None = None,
 ) -> dict:
     if not username:
         raise ValueError(
@@ -133,7 +135,7 @@ def write_metadata(
         "enable_tpu": False,
         "enable_internet": bool(enable_internet),
         "machine_shape": gpu_machine_shape if enable_gpu else "",
-        "dataset_sources": [],
+        "dataset_sources": list(dataset_sources or []),
         "competition_sources": [competition_slug],
         "kernel_sources": [],
         "model_sources": [],
@@ -151,6 +153,7 @@ def main() -> None:
     accelerator = normalize_accelerator(config["runtime"]["accelerator"])
     enable_internet = bool((config.get("runtime") or {}).get("enable_internet", True))
     competition_slug = config["competition"]["slug"]
+    dataset_sources = dataset_sources_for_kernel(config)
 
     rel_config = args.config
     config_path = Path(args.config)
@@ -190,12 +193,14 @@ def main() -> None:
         enable_internet=enable_internet,
         competition_slug=competition_slug,
         gpu_machine_shape=args.gpu_machine_shape,
+        dataset_sources=dataset_sources,
     )
 
     print(f"staging={staging}")
     print(f"kernel_id={metadata['id']}")
     print(f"accelerator={accelerator}")
     print(f"enable_gpu={metadata['enable_gpu']}")
+    print(f"dataset_sources={metadata['dataset_sources']}")
     print(f"config={rel_config}")
     print(f"archive_bytes={len(archive)}")
 

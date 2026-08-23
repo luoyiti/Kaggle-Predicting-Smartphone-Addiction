@@ -10,6 +10,8 @@ def test_package_imports():
     import s6e8.frequency_encoding
     import s6e8.structural_features
     import s6e8.target_encoding
+    import s6e8.reference_features
+    import s6e8.models.entity_mlp
 
     assert s6e8.__version__
     assert callable(s6e8.data.load_config)
@@ -19,3 +21,5 @@ def test_package_imports():
     assert callable(s6e8.frequency_encoding.parse_frequency_config)
     assert callable(s6e8.structural_features.add_structural_features)
     assert callable(s6e8.blending.stack_logistic_cv)
+    assert callable(s6e8.reference_features.apply_reference_features)
+    assert callable(s6e8.models.entity_mlp.hashed_bucket_ids)

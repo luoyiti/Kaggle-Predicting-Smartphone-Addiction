@@ -18,6 +18,7 @@ from s6e8 import __version__ as package_version
 from s6e8.data import PROJECT_ROOT, load_sample_submission, resolve_path
 from s6e8.features import categorical_feature_columns, feature_columns, transform
 from s6e8.frequency_encoding import apply_fold_frequency_encoding, parse_frequency_config
+from s6e8.reference_features import apply_reference_features
 from s6e8.runtime import (
     apply_model_device,
     experiment_summary,
@@ -44,6 +45,9 @@ BACKEND_ALIASES = {
     "mlp": "mlp",
     "sklearn_mlp": "mlp",
     "mlpclassifier": "mlp",
+    "entity_mlp": "entity_mlp",
+    "torch_mlp": "entity_mlp",
+    "hash_mlp": "entity_mlp",
 }
 
 
@@ -173,12 +177,13 @@ def _prepare_xy(
     test_df: pd.DataFrame,
     y: pd.Series,
     config: dict[str, Any],
-) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, list[str], list[str]]:
+) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, list[str], list[str], dict[str, Any]]:
     train_feat = transform(train_df, config)
     test_feat = transform(test_df, config)
+    train_feat, test_feat, ref_meta = apply_reference_features(train_feat, test_feat, config)
     cols = feature_columns(train_feat, config)
     cat_cols = [c for c in categorical_feature_columns(train_feat, config) if c in cols]
-    return train_feat[cols], test_feat[cols], y.to_numpy(), cols, cat_cols
+    return train_feat[cols], test_feat[cols], y.to_numpy(), cols, cat_cols, ref_meta
 
 
 def _run_cv(
@@ -190,7 +195,7 @@ def _run_cv(
 ) -> dict[str, Any]:
     seed = int(config["experiment"]["seed"])
     set_seed(seed)
-    X, X_test, y_np, cols, cat_cols = _prepare_xy(train_df, test_df, y, config)
+    X, X_test, y_np, cols, cat_cols, ref_meta = _prepare_xy(train_df, test_df, y, config)
     te_cfg = parse_exact_te_config(config)
     freq_cfg = parse_frequency_config(config)
     cv_cfg = config["cv"]
@@ -223,6 +228,11 @@ def _run_cv(
         extra_notes.append(f"freq_cols={freq_cfg['columns']}")
     if cat_cols:
         extra_notes.append(f"n_cat={len(cat_cols)}")
+    if ref_meta:
+        extra_notes.append(
+            f"ref_cols={len(ref_meta.get('added_columns') or [])} "
+            f"ref_rows={ref_meta.get('retained_rows')}"
+        )
     note = (" " + " ".join(extra_notes)) if extra_notes else ""
     print(
         f"model={config['model']['name']} backend={resolve_backend(config)} "
@@ -288,6 +298,7 @@ def _run_cv(
         "freq_fold_stats": freq_fold_stats,
         "cat_cols": cat_cols,
         "feature_importances": feature_importances,
+        "reference_features": ref_meta,
     }
 
 
@@ -305,6 +316,7 @@ def train_cv(
         "histgb": _fold_histgb,
         "logreg": _fold_logreg,
         "mlp": _fold_mlp,
+        "entity_mlp": _fold_entity_mlp,
     }
     return _run_cv(train_df, test_df, y, config, trainers[backend])
 
@@ -607,6 +619,24 @@ def _fold_mlp(X_tr, y_tr, X_va, y_va, X_test, ctx):
     return va_pred, te_pred, n_iter
 
 
+def _fold_entity_mlp(X_tr, y_tr, X_va, y_va, X_test, ctx):
+    from s6e8.models.entity_mlp import fold_predict
+
+    model_cfg = ctx["config"]["model"]
+    params = dict(model_cfg.get("params") or {})
+    return fold_predict(
+        X_tr,
+        y_tr,
+        X_va,
+        y_va,
+        X_test,
+        cat_cols=ctx["cat_cols"],
+        seed=ctx["seed"],
+        accelerator=ctx["accelerator"],
+        params=params,
+    )
+
+
 def _mean_feature_importance(
     fold_importances: list[dict[str, dict[str, float]]],
 ) -> dict[str, float]:
@@ -706,6 +736,9 @@ def save_artifacts(
     cat_cols = artifacts.get("cat_cols") or []
     metrics["n_categorical_features"] = len(cat_cols)
     metrics["categorical_feature_names"] = list(cat_cols)
+    ref_meta = artifacts.get("reference_features") or {}
+    if ref_meta:
+        metrics["reference_features"] = ref_meta
     importance_mean = _mean_feature_importance(artifacts.get("feature_importances") or [])
     if importance_mean:
         metrics["feature_importance_gain_mean"] = importance_mean

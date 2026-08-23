@@ -1,8 +1,10 @@
 """OOF blend / stack helpers. Synthetic arrays only."""
 
 import numpy as np
+import pytest
 
 from s6e8.blending import blend_grid, blend_mean, stack_logistic_cv, stack_ridge_cv
+from scripts_loader import load_script
 
 
 def test_blend_mean_is_average():
@@ -54,3 +56,9 @@ def test_stack_ridge_clips_to_unit_interval():
     assert np.all((oof >= 0) & (oof <= 1))
     assert np.all((test >= 0) & (test <= 1))
     assert coef.shape == (1,)
+
+
+def test_blend_oof_missing_seed_run_explains_mean_blend(tmp_path):
+    blend = load_script("blend_oof.py")
+    with pytest.raises(FileNotFoundError, match="catboost_exactcat_budget_seedavg"):
+        blend._load("catboost_exactcat_budget_seed7", tmp_path)

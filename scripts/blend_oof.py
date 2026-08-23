@@ -4,6 +4,7 @@
 Example:
   python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid
   python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_v1 --method stack_logistic
+  python scripts/blend_oof.py --experiments catboost_exactcat_budget_v1 catboost_exactcat_budget_seed7 catboost_exactcat_budget_seed2026 --method mean --name catboost_exactcat_budget_seedavg
 """
 
 from __future__ import annotations
@@ -34,7 +35,16 @@ from s6e8.data import PROJECT_ROOT
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Blend experiment OOF / test predictions")
+    parser = argparse.ArgumentParser(
+        description="Blend experiment OOF / test predictions",
+        epilog=(
+            "Seed-average CatBoost after Kaggle 5-folds: python scripts/blend_oof.py "
+            "--experiments catboost_exactcat_budget_v1 catboost_exactcat_budget_seed7 "
+            "catboost_exactcat_budget_seed2026 --method mean "
+            "--name catboost_exactcat_budget_seedavg"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--experiments", nargs="+", required=True)
     parser.add_argument("--oof-dir", default="oof")
     parser.add_argument("--method", choices=BLEND_METHODS, default="grid")
@@ -48,8 +58,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+REQUIRED_OOF_FILES = ("oof.parquet", "test.parquet", "metrics.json")
+
+
 def _load(exp: str, oof_root: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     folder = oof_root / exp
+    missing = [name for name in REQUIRED_OOF_FILES if not (folder / name).exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing {missing} for experiment {exp!r} under {folder}. "
+            "Train each listed experiment (Kaggle 5-fold) before blending. "
+            "Seed-average CatBoost after the three budget seed runs exist:\n"
+            "  python scripts/blend_oof.py --experiments "
+            "catboost_exactcat_budget_v1 catboost_exactcat_budget_seed7 "
+            "catboost_exactcat_budget_seed2026 --method mean "
+            "--name catboost_exactcat_budget_seedavg"
+        )
     oof = pd.read_parquet(folder / "oof.parquet")
     test = pd.read_parquet(folder / "test.parquet")
     metrics = json.loads((folder / "metrics.json").read_text(encoding="utf-8"))
