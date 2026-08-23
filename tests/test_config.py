@@ -25,6 +25,7 @@ def test_new_modeling_configs_declare_a_hypothesis():
         "catboost_exactcat_budget_seed2026",
         "catboost_exactcat_budget_gpu_v1",
         "catboost_exactcat_budget_gpu_depth6_v1",
+        "catboost_exactcat_budget_joint_v1",
         "entity_mlp_hash_v1",
         "histgb_nocat_long_v1",
         "lgbm_freq_v1",
@@ -132,4 +133,31 @@ def test_gpu_catboost_configs_isolate_accelerator_and_depth():
     assert depth6["model"]["params"]["depth"] == 6
     assert gpu["model"]["name"] == "catboost"
     assert "device_type" not in gpu["model"]["params"]
+
+
+def test_joint_budget_config_isolates_joint_pairs():
+    from copy import deepcopy
+    from pathlib import Path
+
+    import yaml
+
+    base = yaml.safe_load(Path("configs/catboost_exactcat_budget_v1.yaml").read_text(encoding="utf-8"))
+    joint = yaml.safe_load(
+        Path("configs/catboost_exactcat_budget_joint_v1.yaml").read_text(encoding="utf-8")
+    )
+    assert joint["experiment"]["name"] == "catboost_exactcat_budget_joint_v1"
+    assert joint["features"]["exact_categorical"]["joint_pairs"] == [
+        ["notifications_per_day", "app_opens_per_day"]
+    ]
+    assert "joint_pairs" not in (base["features"].get("exact_categorical") or {})
+    left = deepcopy(base)
+    right = deepcopy(joint)
+    for blob in (left, right):
+        blob["experiment"].pop("name")
+        blob["experiment"].pop("hypothesis")
+        blob["experiment"].pop("change")
+        blob["experiment"].pop("feature_version")
+        blob["features"]["exact_categorical"].pop("joint_pairs", None)
+        blob["features"]["exact_categorical"].pop("joint_suffix", None)
+    assert left == right
 

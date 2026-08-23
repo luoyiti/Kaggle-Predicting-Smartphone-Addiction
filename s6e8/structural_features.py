@@ -63,12 +63,37 @@ def _stable_bucket(text: str, n_bins: int) -> str:
     return str(int(digest, 16) % int(n_bins))
 
 
+def _joint_pairs(block: dict[str, Any]) -> list[tuple[str, str]]:
+    pairs = block.get("joint_pairs") or []
+    resolved: list[tuple[str, str]] = []
+    for pair in pairs:
+        columns = [str(column) for column in pair]
+        if len(columns) != 2:
+            raise ValueError(
+                "exact_categorical.joint_pairs entries must be length-2 column lists, "
+                f"got {columns!r}"
+            )
+        resolved.append((columns[0], columns[1]))
+    return resolved
+
+
+def joint_exact_categorical_column_names(config: dict[str, Any]) -> list[str]:
+    """Column names for explicit pairwise exact-value tokens (notif|app identity)."""
+    block = config["features"].get("exact_categorical") or {}
+    if not bool(block.get("enabled", False)):
+        return []
+    suffix = str(block.get("joint_suffix", "__joint"))
+    return [f"{left}__{right}{suffix}" for left, right in _joint_pairs(block)]
+
+
 def exact_categorical_column_names(config: dict[str, Any]) -> list[str]:
     block = config["features"].get("exact_categorical") or {}
     if not bool(block.get("enabled", False)):
         return []
     suffix = str(block.get("suffix", "__exact"))
-    return [f"{column}{suffix}" for column in _resolve_column_list(config, block)]
+    names = [f"{column}{suffix}" for column in _resolve_column_list(config, block)]
+    names.extend(joint_exact_categorical_column_names(config))
+    return names
 
 
 def lattice_categorical_column_names(config: dict[str, Any]) -> list[str]:
@@ -110,6 +135,18 @@ def add_exact_categorical_features(
             n_bins = int(hash_bins)
             labels = labels.map(lambda text: f"{column}#h{_stable_bucket(str(text), n_bins)}")
         out[f"{column}{suffix}"] = labels
+    joint_suffix = str(block.get("joint_suffix", "__joint"))
+    for left, right in _joint_pairs(block):
+        _required_columns(out, [left, right], "exact_categorical.joint_pairs")
+        left_keys = format_exact_keys(
+            out[left], int(decimal_places.get(left, 8)), missing_token
+        )
+        right_keys = format_exact_keys(
+            out[right], int(decimal_places.get(right, 8)), missing_token
+        )
+        out[f"{left}__{right}{joint_suffix}"] = (
+            left + "=" + left_keys + "|" + right + "=" + right_keys
+        )
     return out
 
 

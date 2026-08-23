@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 import yaml
 
 from s6e8.data import load_config
@@ -12,7 +13,9 @@ from s6e8.structural_features import (
     add_exact_categorical_features,
     add_screen_budget_features,
     canonical_numeric_value,
+    exact_categorical_column_names,
     format_exact_keys,
+    joint_exact_categorical_column_names,
 )
 
 
@@ -133,6 +136,69 @@ def test_hash_bins_caps_cardinality(tmp_path):
     )
     out = add_exact_categorical_features(frame, config)
     assert out["daily_screen_time_hours__exact"].nunique() <= 8
+
+
+def test_joint_exact_pair_is_a_single_identity_token(tmp_path):
+    config = _config(
+        tmp_path,
+        {
+            "exact_categorical": {
+                "enabled": True,
+                "columns": ["notifications_per_day", "app_opens_per_day"],
+                "suffix": "__exact",
+                "joint_suffix": "__joint",
+                "joint_pairs": [["notifications_per_day", "app_opens_per_day"]],
+                "decimal_places": {
+                    "notifications_per_day": 0,
+                    "app_opens_per_day": 0,
+                },
+            }
+        },
+    )
+    out = transform(_frame(), config)
+    joint = "notifications_per_day__app_opens_per_day__joint"
+    assert joint in feature_columns(out, config)
+    assert joint in categorical_feature_columns(out, config)
+    assert joint in exact_categorical_column_names(config)
+    assert joint_exact_categorical_column_names(config) == [joint]
+    assert str(out.loc[0, joint]) == "notifications_per_day=10|app_opens_per_day=5"
+    raw = add_exact_categorical_features(_frame(), config)
+    assert raw.loc[1, joint] == "notifications_per_day=20|app_opens_per_day=10"
+
+
+def test_joint_pairs_missing_value_uses_missing_token(tmp_path):
+    config = _config(
+        tmp_path,
+        {
+            "exact_categorical": {
+                "enabled": True,
+                "columns": ["age", "notifications_per_day"],
+                "joint_pairs": [["age", "notifications_per_day"]],
+                "decimal_places": {"age": 0, "notifications_per_day": 0},
+            }
+        },
+    )
+    frame = _frame()
+    frame.loc[1, "notifications_per_day"] = np.nan
+    out = add_exact_categorical_features(frame, config)
+    joint = "age__notifications_per_day__joint"
+    assert out.loc[0, joint] == "age=24|notifications_per_day=10"
+    assert out.loc[1, joint] == "age=__MISSING__|notifications_per_day=__MISSING__"
+
+
+def test_joint_pairs_require_two_columns(tmp_path):
+    config = _config(
+        tmp_path,
+        {
+            "exact_categorical": {
+                "enabled": True,
+                "columns": ["age"],
+                "joint_pairs": [["age"]],
+            }
+        },
+    )
+    with pytest.raises(ValueError, match="length-2"):
+        add_exact_categorical_features(_frame(), config)
 
 
 def test_disabled_structural_blocks_add_nothing(tmp_path):
