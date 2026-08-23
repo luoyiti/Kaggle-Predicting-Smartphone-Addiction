@@ -29,19 +29,26 @@ def torch_available() -> bool:
 
 
 def hashed_bucket_ids(values: pd.Series, n_buckets: int) -> np.ndarray:
-    """Stable MD5 hashing trick. Missing → bucket 0 reserved for NA."""
+    """Stable MD5 hashing trick. Missing → bucket 0 reserved for NA.
+
+    Unique non-null tokens are hashed once and scattered back, so a 296k-row
+    test frame does not pay a Python MD5 per cell.
+    """
     if n_buckets < 2:
         raise ValueError("hash_buckets must be >= 2")
+    usable = int(n_buckets) - 1
     out = np.zeros(len(values), dtype=np.int64)
     mask = values.isna().to_numpy()
-    text = values.astype("string").fillna("__MISSING__").to_numpy()
-    usable = int(n_buckets) - 1
-    for i, (missing, token) in enumerate(zip(mask, text)):
-        if bool(missing):
-            out[i] = 0
-            continue
+    finite_idx = np.flatnonzero(~mask)
+    if finite_idx.size == 0:
+        return out
+    tokens = values.astype("string").to_numpy()[finite_idx]
+    uniques, inverse = np.unique(tokens, return_inverse=True)
+    buckets = np.empty(len(uniques), dtype=np.int64)
+    for i, token in enumerate(uniques):
         digest = hashlib.md5(str(token).encode("utf-8")).hexdigest()
-        out[i] = 1 + (int(digest, 16) % usable)
+        buckets[i] = 1 + (int(digest, 16) % usable)
+    out[finite_idx] = buckets[inverse]
     return out
 
 

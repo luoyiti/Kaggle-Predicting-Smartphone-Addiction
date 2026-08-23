@@ -26,6 +26,7 @@ def test_new_modeling_configs_declare_a_hypothesis():
         "catboost_exactcat_budget_gpu_v1",
         "catboost_exactcat_budget_gpu_depth6_v1",
         "catboost_exactcat_budget_joint_v1",
+        "catboost_exactcat_budget_identity_v1",
         "entity_mlp_hash_v1",
         "histgb_nocat_long_v1",
         "lgbm_freq_v1",
@@ -159,5 +160,32 @@ def test_joint_budget_config_isolates_joint_pairs():
         blob["experiment"].pop("feature_version")
         blob["features"]["exact_categorical"].pop("joint_pairs", None)
         blob["features"]["exact_categorical"].pop("joint_suffix", None)
+    assert left == right
+
+
+def test_identity_budget_config_isolates_exact_columns():
+    from copy import deepcopy
+    from pathlib import Path
+
+    import yaml
+
+    base = yaml.safe_load(Path("configs/catboost_exactcat_budget_v1.yaml").read_text(encoding="utf-8"))
+    identity = yaml.safe_load(
+        Path("configs/catboost_exactcat_budget_identity_v1.yaml").read_text(encoding="utf-8")
+    )
+    assert identity["experiment"]["name"] == "catboost_exactcat_budget_identity_v1"
+    assert identity["features"]["exact_categorical"]["columns"] == [
+        "notifications_per_day",
+        "app_opens_per_day",
+    ]
+    assert base["features"]["exact_categorical"]["columns"] == "auto_numeric"
+    left = deepcopy(base)
+    right = deepcopy(identity)
+    for blob in (left, right):
+        blob["experiment"].pop("name")
+        blob["experiment"].pop("hypothesis")
+        blob["experiment"].pop("change")
+        blob["experiment"].pop("feature_version")
+        blob["features"]["exact_categorical"].pop("columns")
     assert left == right
 

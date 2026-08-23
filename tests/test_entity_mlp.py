@@ -23,6 +23,14 @@ def test_hashed_bucket_ids_are_stable_and_reserve_zero_for_na():
     assert a[3] != a[0]
 
 
+def test_hashed_bucket_ids_unique_path_matches_per_row_md5():
+    s = pd.Series(["x=1", "x=2", "x=1", np.nan, "x=3"] * 20)
+    got = hashed_bucket_ids(s, 32)
+    assert got[3] == 0
+    assert got[0] == got[2]
+    assert len(np.unique(got[s.notna()])) == 3
+
+
 def test_entity_mlp_backend_is_registered():
     config = load_config("configs/entity_mlp_hash_v1.yaml")
     assert resolve_backend(config) == "entity_mlp"
