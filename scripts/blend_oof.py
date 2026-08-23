@@ -32,6 +32,13 @@ from s6e8.blending import (
     stack_ridge_cv,
 )
 from s6e8.data import PROJECT_ROOT
+from s6e8.oof_guard import (
+    REQUIRED_OOF_FILES,
+    check_npy_shape,
+    validate_blend_protocol,
+    validate_prediction_frames,
+    warn_if_budget_v1_not_cpu_dropcats,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -58,9 +65,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-REQUIRED_OOF_FILES = ("oof.parquet", "test.parquet", "metrics.json")
-
-
 def _load(exp: str, oof_root: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     folder = oof_root / exp
     missing = [name for name in REQUIRED_OOF_FILES if not (folder / name).exists()]
@@ -77,6 +81,12 @@ def _load(exp: str, oof_root: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     oof = pd.read_parquet(folder / "oof.parquet")
     test = pd.read_parquet(folder / "test.parquet")
     metrics = json.loads((folder / "metrics.json").read_text(encoding="utf-8"))
+    oof_pred, test_pred = validate_prediction_frames(exp, oof, test, metrics)
+    check_npy_shape(folder, "oof", oof_pred)
+    check_npy_shape(folder, "test", test_pred)
+    warning = warn_if_budget_v1_not_cpu_dropcats(exp, metrics)
+    if warning:
+        print(f"WARNING: {warning}", flush=True)
     return oof, test, metrics
 
 
@@ -92,23 +102,47 @@ def main() -> None:
     ids = None
     test_ids = None
     rows = []
+    loaded_metrics: list[tuple[str, dict]] = []
     for exp in args.experiments:
         oof, test, metrics = _load(exp, oof_root)
+        loaded_metrics.append((exp, metrics))
         oof = oof.sort_values("id").reset_index(drop=True)
         test = test.sort_values("id").reset_index(drop=True)
+        oof_pred, test_pred = validate_prediction_frames(exp, oof, test, metrics)
         if y is None:
+            if "addicted_label" not in oof.columns:
+                raise ValueError(f"{exp} OOF missing addicted_label")
             y = oof["addicted_label"].to_numpy()
             ids = oof["id"].to_numpy()
             test_ids = test["id"].to_numpy()
         else:
             if not np.array_equal(ids, oof["id"].to_numpy()):
-                raise ValueError(f"{exp} OOF ids do not align")
+                raise ValueError(
+                    f"{exp} OOF ids do not align "
+                    f"(n={len(oof)} vs first n={len(ids)})"
+                )
             if not np.array_equal(test_ids, test["id"].to_numpy()):
-                raise ValueError(f"{exp} test ids do not align")
-        oofs.append(oof["pred"].to_numpy())
-        tests.append(test["pred"].to_numpy())
+                raise ValueError(
+                    f"{exp} test ids do not align "
+                    f"(n={len(test)} vs first n={len(test_ids)})"
+                )
+            if oof_pred.shape != oofs[0].shape:
+                raise ValueError(
+                    f"{exp} OOF pred shape {oof_pred.shape} != {oofs[0].shape}"
+                )
+            if test_pred.shape != tests[0].shape:
+                raise ValueError(
+                    f"{exp} test pred shape {test_pred.shape} != {tests[0].shape}"
+                )
+        if y is not None and oof_pred.shape != np.asarray(y).shape:
+            raise ValueError(
+                f"{exp} OOF pred shape {oof_pred.shape} != labels {np.asarray(y).shape}"
+            )
+        oofs.append(oof_pred)
+        tests.append(test_pred)
         rows.append((exp, float(metrics.get("oof_auc", np.nan))))
         print(f"{exp}: oof_auc={metrics.get('oof_auc')} n_train={len(oof)}")
+    validate_blend_protocol(loaded_metrics)
 
     stacked = np.vstack(oofs)
     corr = np.corrcoef(stacked)

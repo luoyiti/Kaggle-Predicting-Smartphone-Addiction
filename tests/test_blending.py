@@ -1,6 +1,7 @@
 """OOF blend / stack helpers. Synthetic arrays only."""
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from s6e8.blending import blend_grid, blend_mean, stack_logistic_cv, stack_ridge_cv
@@ -62,3 +63,18 @@ def test_blend_oof_missing_seed_run_explains_mean_blend(tmp_path):
     blend = load_script("blend_oof.py")
     with pytest.raises(FileNotFoundError, match="catboost_exactcat_budget_seedavg"):
         blend._load("catboost_exactcat_budget_seed7", tmp_path)
+
+
+def test_blend_oof_fails_loud_on_duplicate_ids(tmp_path):
+    blend = load_script("blend_oof.py")
+    folder = tmp_path / "dup"
+    folder.mkdir()
+    oof = pd.DataFrame(
+        {"id": [1, 1], "addicted_label": [0, 1], "pred": [0.2, 0.8]}
+    )
+    test = pd.DataFrame({"id": [10, 11], "pred": [0.3, 0.7]})
+    oof.to_parquet(folder / "oof.parquet", index=False)
+    test.to_parquet(folder / "test.parquet", index=False)
+    (folder / "metrics.json").write_text('{"oof_auc": 0.5}', encoding="utf-8")
+    with pytest.raises(ValueError, match="ids are not unique"):
+        blend._load("dup", tmp_path)

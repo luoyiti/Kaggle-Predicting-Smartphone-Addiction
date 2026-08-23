@@ -14,6 +14,7 @@ def test_package_imports():
     import s6e8.error_band
     import s6e8.hard_band
     import s6e8.models.entity_mlp
+    import s6e8.oof_guard
 
     assert s6e8.__version__
     assert callable(s6e8.data.load_config)
@@ -27,3 +28,4 @@ def test_package_imports():
     assert callable(s6e8.models.entity_mlp.hashed_bucket_ids)
     assert callable(s6e8.error_band.analyze_error_band)
     assert callable(s6e8.hard_band.parse_hard_band_config)
+    assert callable(s6e8.oof_guard.validate_cpu_dropcats_budget_metrics)
