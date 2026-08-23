@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 import yaml
@@ -378,6 +379,54 @@ def test_histgb_fit_accepts_missing_x_val():
 
     filtered = _filter_init_kwargs(OldHistGB, {"learning_rate": 0.06, "categorical_features": "from_dtype"})
     assert filtered == {"learning_rate": 0.06}
+
+
+def test_smoke_hardband_train_only_uses_frozen_oof(tmp_path, baseline_config_path):
+    train_df, test_df = _synthetic_frames(n_train=80, n_test=20)
+    frozen_dir = tmp_path / "oof" / "lgbm_nocat"
+    frozen_dir.mkdir(parents=True)
+    rng = np.random.default_rng(0)
+    frozen_pred = rng.uniform(0.05, 0.95, size=len(train_df))
+    # Guarantee a non-empty open (0.3, 0.7) band on both classes.
+    frozen_pred[:20] = np.linspace(0.31, 0.69, 20)
+    pd.DataFrame(
+        {
+            "id": train_df["id"],
+            "addicted_label": train_df["addicted_label"],
+            "pred": frozen_pred,
+        }
+    ).to_parquet(frozen_dir / "oof.parquet", index=False)
+
+    raw = yaml.safe_load(Path("configs/lgbm_nocat_hardband_v1.yaml").read_text(encoding="utf-8"))
+    raw["experiment"]["name"] = "synthetic_hardband"
+    raw["paths"]["train"] = str(tmp_path / "train.csv")
+    raw["paths"]["test"] = str(tmp_path / "test.csv")
+    raw["paths"]["sample_submission"] = str(tmp_path / "missing.csv")
+    raw["paths"]["oof_dir"] = str(tmp_path / "oof")
+    raw["paths"]["submission_dir"] = str(tmp_path / "submissions")
+    raw["paths"]["experiments_dir"] = str(tmp_path / "experiments")
+    raw["cv"]["n_splits"] = 2
+    raw["model"]["num_boost_round"] = 20
+    raw["model"]["early_stopping_rounds"] = 5
+    raw["model"]["log_evaluation"] = 0
+    raw["features"]["hard_band"]["min_train_rows"] = 5
+    raw["features"]["hard_band"]["min_eval_rows"] = 4
+    raw["features"]["hard_band"]["fallback"] = "none"
+    train_df.to_csv(raw["paths"]["train"], index=False)
+    test_df.to_csv(raw["paths"]["test"], index=False)
+    cfg_path = tmp_path / "hardband.yaml"
+    cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    config = load_config(cfg_path)
+    X_train, y = split_xy(train_df, config)
+    artifacts = train_cv(X_train, test_df, y, config)
+    assert 0.0 <= artifacts["oof_auc"] <= 1.0
+    assert len(artifacts["oof"]) == len(train_df)
+    hb = artifacts["hard_band"]
+    assert hb["source"] == "frozen_oof"
+    assert hb["n_missing"] == 0
+    assert hb["used_inner_oof"] is False
+    assert any(fold["used_train_only"] for fold in hb["folds"])
+    assert all(fold["n_train_used"] < fold["n_train"] for fold in hb["folds"])
 
 
 def test_diagnostic_override_renames_experiment(baseline_config_path):

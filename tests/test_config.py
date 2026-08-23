@@ -32,6 +32,7 @@ def test_new_modeling_configs_declare_a_hypothesis():
         "entity_mlp_hash_v1",
         "histgb_nocat_long_v1",
         "lgbm_freq_v1",
+        "lgbm_nocat_hardband_v1",
         "lgbm_nocat_mono",
         "mlp_nocat",
         "xgb_nocat",
@@ -237,5 +238,31 @@ def test_bernoulli_budget_config_isolates_bootstrap_type():
         blob["experiment"].pop("change")
         blob["experiment"].pop("model_version")
         blob["model"]["params"].pop("bootstrap_type", None)
+    assert left == right
+
+
+def test_hardband_config_isolates_hard_band():
+    from copy import deepcopy
+    from pathlib import Path
+
+    import yaml
+
+    base = yaml.safe_load(Path("configs/lgbm_nocat.yaml").read_text(encoding="utf-8"))
+    hard = yaml.safe_load(Path("configs/lgbm_nocat_hardband_v1.yaml").read_text(encoding="utf-8"))
+    assert hard["experiment"]["name"] == "lgbm_nocat_hardband_v1"
+    hb = hard["features"]["hard_band"]
+    assert hb["enabled"] is True
+    assert hb["mode"] == "train_only"
+    assert hb["source_experiment"] == "lgbm_nocat"
+    assert hb["lo"] == 0.3
+    assert hb["hi"] == 0.7
+    left = deepcopy(base)
+    right = deepcopy(hard)
+    for blob in (left, right):
+        blob["experiment"].pop("name")
+        blob["experiment"].pop("hypothesis")
+        blob["experiment"].pop("change")
+        blob["experiment"].pop("feature_version")
+        blob["features"].pop("hard_band", None)
     assert left == right
 

@@ -18,6 +18,8 @@ from s6e8 import __version__ as package_version
 from s6e8.data import PROJECT_ROOT, load_sample_submission, resolve_path
 from s6e8.features import categorical_feature_columns, feature_columns, transform
 from s6e8.frequency_encoding import apply_fold_frequency_encoding, parse_frequency_config
+from s6e8.error_band import band_mask
+from s6e8.hard_band import apply_hard_band_fold, parse_hard_band_config, resolve_band_pred
 from s6e8.reference_features import apply_reference_features
 from s6e8.runtime import (
     apply_model_device,
@@ -198,6 +200,7 @@ def _run_cv(
     X, X_test, y_np, cols, cat_cols, ref_meta = _prepare_xy(train_df, test_df, y, config)
     te_cfg = parse_exact_te_config(config)
     freq_cfg = parse_frequency_config(config)
+    hb_cfg = parse_hard_band_config(config)
     cv_cfg = config["cv"]
     splitter = StratifiedKFold(
         n_splits=int(cv_cfg["n_splits"]),
@@ -211,6 +214,7 @@ def _run_cv(
     best_iterations: list[int] = []
     te_fold_stats: list[dict[str, Any]] = []
     freq_fold_stats: list[dict[str, Any]] = []
+    hb_fold_stats: list[dict[str, Any]] = []
     feature_importances: list[dict[str, dict[str, float]]] = []
     feature_names = list(cols)
     ctx = {
@@ -228,6 +232,16 @@ def _run_cv(
         extra_notes.append(f"freq_cols={freq_cfg['columns']}")
     if cat_cols:
         extra_notes.append(f"n_cat={len(cat_cols)}")
+    hb_state: dict[str, Any] | None = None
+    if hb_cfg is not None:
+        train_ids = train_df[config["competition"]["id_col"]].to_numpy()
+        hb_pred, hb_meta = resolve_band_pred(train_ids, X, y_np, hb_cfg, config)
+        hb_state = {"cfg": hb_cfg, "pred": hb_pred, "meta": hb_meta}
+        extra_notes.append(
+            f"hard_band={hb_cfg['mode']} lo={hb_cfg['lo']} hi={hb_cfg['hi']} "
+            f"source={hb_meta.get('source')} "
+            f"n_band={int(band_mask(hb_pred, hb_cfg['lo'], hb_cfg['hi']).sum())}"
+        )
     if ref_meta:
         extra_notes.append(
             f"ref_cols={len(ref_meta.get('added_columns') or [])} "
@@ -267,6 +281,29 @@ def _run_cv(
             print(
                 f"[fold {fold}] n_features={len(feature_names)} freq_unseen={n_unseen}"
             )
+        ctx["train_weight"] = None
+        ctx["X_va_eval"] = X_va
+        ctx["y_va_eval"] = y_va
+        if hb_state is not None:
+            applied = apply_hard_band_fold(
+                X_tr,
+                y_tr,
+                X_va,
+                y_va,
+                hb_state["pred"][tr_idx],
+                hb_state["pred"][va_idx],
+                hb_state["cfg"],
+            )
+            X_tr, y_tr = applied["X_tr"], applied["y_tr"]
+            ctx["train_weight"] = applied["train_weight"]
+            ctx["X_va_eval"] = applied["X_va_eval"]
+            ctx["y_va_eval"] = applied["y_va_eval"]
+            hb_fold_stats.append(applied["stats"])
+            print(
+                f"[fold {fold}] hard_band train_used={applied['stats']['n_train_used']}/"
+                f"{applied['stats']['n_train']} eval={applied['stats']['n_valid_eval']}/"
+                f"{applied['stats']['n_valid']}"
+            )
         va_pred, te_pred, best_iter = fold_fn(X_tr, y_tr, X_va, y_va, X_te, ctx)
         oof[va_idx] = va_pred.astype(dtype, copy=False)
         test_pred += te_pred.astype(dtype, copy=False) / splitter.n_splits
@@ -296,6 +333,7 @@ def _run_cv(
         "te_fold_stats": te_fold_stats,
         "freq_config": freq_cfg,
         "freq_fold_stats": freq_fold_stats,
+        "hard_band": None if hb_state is None else {**hb_state["meta"], "folds": hb_fold_stats},
         "cat_cols": cat_cols,
         "feature_importances": feature_importances,
         "reference_features": ref_meta,
@@ -342,6 +380,14 @@ def apply_monotone_constraints(
     return out
 
 
+def _eval_frames(X_va, y_va, ctx):
+    X_eval = ctx.get("X_va_eval")
+    y_eval = ctx.get("y_va_eval")
+    if X_eval is None:
+        return X_va, y_va
+    return X_eval, y_eval
+
+
 def _fold_lightgbm(X_tr, y_tr, X_va, y_va, X_test, ctx):
     model_cfg = ctx["config"]["model"]
     params = apply_model_device(
@@ -354,10 +400,18 @@ def _fold_lightgbm(X_tr, y_tr, X_va, y_va, X_test, ctx):
     params["feature_fraction_seed"] = ctx["seed"]
     params["bagging_seed"] = ctx["seed"]
     cat_cols = ctx["cat_cols"]
-    dtrain = lgb.Dataset(X_tr, label=y_tr, categorical_feature=cat_cols, free_raw_data=False)
+    train_weight = ctx.get("train_weight")
+    dtrain = lgb.Dataset(
+        X_tr,
+        label=y_tr,
+        weight=train_weight,
+        categorical_feature=cat_cols,
+        free_raw_data=False,
+    )
+    X_va_eval, y_va_eval = _eval_frames(X_va, y_va, ctx)
     dvalid = lgb.Dataset(
-        X_va,
-        label=y_va,
+        X_va_eval,
+        label=y_va_eval,
         categorical_feature=cat_cols,
         reference=dtrain,
         free_raw_data=False,
@@ -448,13 +502,18 @@ def _fold_catboost(X_tr, y_tr, X_va, y_va, X_test, ctx):
     X_tr_c = _catboost_frame(X_tr, cat_cols)
     X_va_c = _catboost_frame(X_va, cat_cols)
     X_te_c = _catboost_frame(X_test, cat_cols)
+    X_va_eval, y_va_eval = _eval_frames(X_va, y_va, ctx)
+    X_va_eval_c = _catboost_frame(X_va_eval, cat_cols)
     model = CatBoostClassifier(iterations=iterations, **params)
     fit_kwargs = dict(
-        eval_set=(X_va_c, y_va),
+        eval_set=(X_va_eval_c, y_va_eval),
         cat_features=cat_cols,
         early_stopping_rounds=int(model_cfg["early_stopping_rounds"]),
         use_best_model=True,
     )
+    train_weight = ctx.get("train_weight")
+    if train_weight is not None:
+        fit_kwargs["sample_weight"] = train_weight
     try:
         model.fit(X_tr_c, y_tr, **fit_kwargs)
     except Exception as exc:
@@ -495,10 +554,13 @@ def _filter_init_kwargs(cls: type, params: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
-def fit_histgb(clf: Any, X_tr, y_tr, X_va, y_va) -> Any:
+def fit_histgb(clf: Any, X_tr, y_tr, X_va, y_va, sample_weight=None) -> Any:
     """Fit HistGB on sklearn 1.7+ (X_val) and older Kaggle images (no X_val)."""
+    fit_kwargs: dict[str, Any] = {}
+    if sample_weight is not None:
+        fit_kwargs["sample_weight"] = sample_weight
     if _callable_accepts(clf.fit, "X_val"):
-        clf.fit(X_tr, y_tr, X_val=X_va, y_val=y_va)
+        clf.fit(X_tr, y_tr, X_val=X_va, y_val=y_va, **fit_kwargs)
         return clf
     import sklearn
 
@@ -507,7 +569,7 @@ def fit_histgb(clf: Any, X_tr, y_tr, X_va, y_va) -> Any:
         "early-stopping uses validation_fraction on the fold train split.",
         flush=True,
     )
-    clf.fit(X_tr, y_tr)
+    clf.fit(X_tr, y_tr, **fit_kwargs)
     return clf
 
 
@@ -528,7 +590,8 @@ def _fold_histgb(X_tr, y_tr, X_va, y_va, X_test, ctx):
     params = _filter_init_kwargs(HistGradientBoostingClassifier, params)
     print(f"histgb sklearn={sklearn.__version__}", flush=True)
     clf = HistGradientBoostingClassifier(**params)
-    fit_histgb(clf, X_tr, y_tr, X_va, y_va)
+    X_va_eval, y_va_eval = _eval_frames(X_va, y_va, ctx)
+    fit_histgb(clf, X_tr, y_tr, X_va_eval, y_va_eval, sample_weight=ctx.get("train_weight"))
     best_iter = int(getattr(clf, "n_iter_", 0) or 0)
     va_pred = clf.predict_proba(X_va)[:, 1]
     te_pred = clf.predict_proba(X_test)[:, 1]
@@ -733,6 +796,9 @@ def save_artifacts(
     freq_fold_stats = artifacts.get("freq_fold_stats")
     if freq_fold_stats:
         metrics["freq_fold_stats"] = freq_fold_stats
+    hard_band = artifacts.get("hard_band")
+    if hard_band:
+        metrics["hard_band"] = hard_band
     cat_cols = artifacts.get("cat_cols") or []
     metrics["n_categorical_features"] = len(cat_cols)
     metrics["categorical_feature_names"] = list(cat_cols)

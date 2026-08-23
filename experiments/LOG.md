@@ -30,7 +30,7 @@ The three categoricals are dropped. No coverage features.
 | blend_nocat_freq_cb_gpu | Two LGBMs + GPU CB | Grid 0.10 nocat + 0.05 freq + 0.85 GPU CB | 0.967891 | — | — | Tiny lift vs 2-way. | Optional |
 | blend_nocat_freq_histlong_cb_gpu | Tree trio + GPU CB | Grid 0.05/0.05/0.10/0.80 | **0.967904** | — | — | Best this-branch **cats-dropped** 5-fold so far. | Re-blend after CPU drop-cats |
 
-**CPU drop-cats 5-fold is NOT in LOG.md.** Kernel [s6e8-cb-exactcat-budget-dropcats-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1) (`configs/catboost_exactcat_budget_v1.yaml`) was still **RUNNING** at the 2026-08-23 18:25 UTC harvest. Do not treat the GPU row as that CPU YAML.
+**CPU drop-cats 5-fold is NOT in LOG.md.** Kernel [s6e8-cb-exactcat-budget-dropcats-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1) (`configs/catboost_exactcat_budget_v1.yaml`) was still **RUNNING** at the 2026-08-23 18:28 UTC harvest. Do not treat the GPU row as that CPU YAML.
 
 Did **not** submit to the leaderboard. Did **not** add coverage features. Did **not** drop notifications/app_opens.
 
@@ -90,10 +90,11 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 | entity_mlp_hash_v1_diag80000 | Hashed-entity residual MLP (not Lookup-Transformer) | torch CPU; hash_buckets=256; 12 epochs | 0.921705 | 0.000943 | 27s | **−0.033 vs lgbm_nocat 0.954317.** Worse than sklearn MLP 0.931. Hashing destroys identity (same lesson as hashed HistGB). Hit epoch cap on every fold. | Stop as a solo; do not 5-fold |
 | catboost_exactcat_budget_plain_v1_diag80000 | Ordered vs Plain boosting | `model.params.boosting_type: Plain` | 0.961641 | 0.000200 | 120s | **Identical to budget Ordered 0.961641** (same OOF, std, folds to reported precision). Not a ranking lever on 80k. | Do not 5-fold for lift; optional runtime tweak |
 | catboost_exactcat_budget_bernoulli_v1_diag80000 | Bernoulli row subsample | `model.params.bootstrap_type: Bernoulli` | 0.961279 | 0.000240 | 119s | **−0.00036 vs budget 0.961641.** Slightly worse solo. | Do not 5-fold |
+| lgbm_nocat_hardband_v1_diag80000 | Specialist on frozen nocat p∈(0.3, 0.7) | `features.hard_band` train_only + eval_on band; frozen `lgbm_nocat` OOF mask; n_band=10966 | 0.470972 | 0.041458 | 1.4s | **Failed.** Solo 0.471. Band AUC 0.519 vs frozen nocat band **0.639**. Gated mix 0.1 is +0.000006 (noise). Grid wants 0% specialist. Not a competition score. | Do not 5-fold |
 
-**Promote to Kaggle 5-fold (in this order):** harvest CPU `catboost_exactcat_budget_v1` drop-cats (still **RUNNING** as of 2026-08-23 18:25 UTC), then grid-blend with `lgbm_nocat` / `lgbm_freq_v1` / histlong. Seed-average after seed kernels land. GPU depth-6 is already pushed.
+**Promote to Kaggle 5-fold (in this order):** harvest CPU `catboost_exactcat_budget_v1` drop-cats (still **RUNNING** as of 2026-08-23 18:28 UTC), then grid-blend with `lgbm_nocat` / `lgbm_freq_v1` / histlong. Seed-average after seed kernels land. GPU depth-6 is already pushed.
 
-**Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO, **target-free original-source refdist** (flat vs budget), **explicit notif\\|app joint exact token** (flat vs budget), **identity-only exact cats** (notif+app only), **hashed-entity MLP**, **Plain vs Ordered CatBoost** (identical 80k), **Bernoulli bootstrap** (−0.00036 vs budget).
+**Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO, **target-free original-source refdist** (flat vs budget), **explicit notif\\|app joint exact token** (flat vs budget), **identity-only exact cats** (notif+app only), **hashed-entity MLP**, **Plain vs Ordered CatBoost** (identical 80k), **Bernoulli bootstrap** (−0.00036 vs budget), **hard-band train_only specialist** (solo 0.471; worse than frozen nocat even inside the band).
 
 ## Answers so far
 
@@ -137,6 +138,7 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 - Inside that band every raw numeric has AUC 0.496–0.506. Residual corr vs `y − p` is |r| ≤ 0.039.
 - PR #11 CatBoost budget (orig cats kept, **not this-branch YAML**) scores **0.7049** on those same LGBM-hard rows and has a smaller own band (81,398). Do not treat 0.7049 as this-branch drop-cats.
 - This-branch GPU drop-cats (`catboost_exactcat_budget_gpu_v1`, n_cat=9) scores **0.70544** on the same 93,459 LGBM-hard rows and has own band n=81,046 (AUC 0.636). Report: `experiments/error_band_lgbm_nocat_vs_cb_gpu.json`.
+- 80k train_only specialist on the frozen nocat band (`lgbm_nocat_hardband_v1`) scores **0.519** on that band vs frozen nocat **0.639**. Restricting the tree to hard rows destroys ranking rather than specializing. Do not 5-fold.
 
 ## Full 5-fold jobs (this repo, main-tracked YAML)
 
@@ -184,7 +186,7 @@ The 0.968294 row uses Lookup-Transformer **only as an already-trained blender**.
 Local `kaggle kernels push` only. `submit_to_kaggle` was **not** used. Do **not** overwrite PR #11 slugs
 `yitiluo/s6e8-catboost-exactcat-budget-v1` or `yitiluo/s6e8-catboost-exactcat-v1`.
 
-Status snapshot **2026-08-23 18:25 UTC** (`python3 -m kaggle kernels status`):
+Status snapshot **2026-08-23 18:28 UTC** (`python3 -m kaggle kernels status`):
 
 | experiment YAML | kernel | acc | status |
 | --- | --- | --- | --- |
@@ -223,6 +225,7 @@ Joint-pair / refdist / identity / Plain / Bernoulli / entity_mlp YAMLs were **no
 - CatBoost `boosting_type: Plain` vs default Ordered (80k **identical** 0.961641).
 - CatBoost `bootstrap_type: Bernoulli` vs default Bayesian (80k **0.961279 vs 0.961641**).
 - Restacking the nocat+freq+histlong trio (logistic / ridge / rank / logit). All ≤ the existing grid **0.964367**.
+- Training a LightGBM specialist **only** on frozen `lgbm_nocat` OOF p∈(0.3, 0.7) (80k **0.470972**; band 0.519 vs frozen 0.639).
 
 ## Code-level paths landed this iteration
 
@@ -237,8 +240,9 @@ Joint-pair / refdist / identity / Plain / Bernoulli / entity_mlp YAMLs were **no
 | `catboost_exactcat_budget_identity_v1` | exact cats = notif+app only | 80k **0.958548** (−0.003 vs budget); stop |
 | `catboost_exactcat_budget_plain_v1` | `boosting_type: Plain` | 80k **identical** to Ordered budget |
 | `catboost_exactcat_budget_bernoulli_v1` | `bootstrap_type: Bernoulli` | 80k **0.961279** (−0.00036 vs budget); stop |
+| `lgbm_nocat_hardband_v1` | frozen-OOF hard-band train_only specialist | 80k **0.470972**; worse than frozen nocat even in-band; stop |
 
-`scripts/prepare_kaggle_kernel.py` copies `features.reference.dataset_source` into kernel `dataset_sources`. `scripts/blend_oof.py --method mean` is the seed-average glue. `scripts/analyze_error_band.py` writes `experiments/error_band_<name>.json` from saved OOF (no training).
+`scripts/prepare_kaggle_kernel.py` copies `features.reference.dataset_source` into kernel `dataset_sources`. `scripts/blend_oof.py --method mean` is the seed-average glue. `scripts/analyze_error_band.py` writes `experiments/error_band_<name>.json` from saved OOF (no training). `features.hard_band` trains only on / reweights rows whose frozen base OOF p is in `(lo, hi)`.
 
 ## Remaining *runtime-only* work (this VM cannot finish)
 

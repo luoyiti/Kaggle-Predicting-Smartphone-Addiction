@@ -12,6 +12,7 @@ def test_package_imports():
     import s6e8.target_encoding
     import s6e8.reference_features
     import s6e8.error_band
+    import s6e8.hard_band
     import s6e8.models.entity_mlp
 
     assert s6e8.__version__
@@ -25,3 +26,4 @@ def test_package_imports():
     assert callable(s6e8.reference_features.apply_reference_features)
     assert callable(s6e8.models.entity_mlp.hashed_bucket_ids)
     assert callable(s6e8.error_band.analyze_error_band)
+    assert callable(s6e8.hard_band.parse_hard_band_config)
