@@ -36,6 +36,7 @@ def test_new_modeling_configs_declare_a_hypothesis():
         "lgbm_nocat_dart_v1",
         "lgbm_nocat_goss_v1",
         "lgbm_nocat_hardband_v1",
+        "lgbm_nocat_maxbin_v1",
         "lgbm_nocat_mono",
         "mlp_nocat",
         "xgb_nocat",
@@ -362,5 +363,27 @@ def test_goss_config_isolates_boosting_type():
         blob["experiment"].pop("model_version")
         blob["model"]["params"].pop("boosting_type")
         blob["model"]["params"].pop("bagging_freq")
+    assert left == right
+
+
+def test_maxbin_config_isolates_max_bin():
+    from copy import deepcopy
+    from pathlib import Path
+
+    import yaml
+
+    base = yaml.safe_load(Path("configs/lgbm_nocat.yaml").read_text(encoding="utf-8"))
+    maxbin = yaml.safe_load(Path("configs/lgbm_nocat_maxbin_v1.yaml").read_text(encoding="utf-8"))
+    assert maxbin["experiment"]["name"] == "lgbm_nocat_maxbin_v1"
+    assert maxbin["model"]["params"]["max_bin"] == 2047
+    assert "max_bin" not in base["model"]["params"]
+    left = deepcopy(base)
+    right = deepcopy(maxbin)
+    for blob in (left, right):
+        blob["experiment"].pop("name")
+        blob["experiment"].pop("hypothesis")
+        blob["experiment"].pop("change")
+        blob["experiment"].pop("model_version")
+    right["model"]["params"].pop("max_bin")
     assert left == right
 

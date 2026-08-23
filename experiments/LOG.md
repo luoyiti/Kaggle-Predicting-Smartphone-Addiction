@@ -294,12 +294,13 @@ Joint-pair / refdist / identity / Plain / Bernoulli / entity_mlp YAMLs were **no
 | `lgbm_nocat_goss_v1` | `boosting_type: goss` (bagging off) | 80k **0.951202** (−0.003 vs nocat); stop |
 | `lgbm_nocat_seed7` / `_seed2026` | seed only | seed7 **0.963837**; seed2026 **0.963691**; 3-seed mean **0.964287** |
 | `catboost_exactcat_budget_border128_v1` | `border_count` 128 vs default 254 | 80k **0.961555** (−0.000086 vs budget); stop |
+| `lgbm_nocat_maxbin_v1` | LightGBM `max_bin` 2047 vs default 255 | **Not run here.** Public 5-fold [kitopl/max-bin](https://www.kaggle.com/code/kitopl/max-bin) +0.0023 (0.96406→0.96644) then flat at ≥1439. Opposite of CatBoost `border_count` 128. CPU LGBM; do not launch while CatBoost CPUs occupy quota. |
 
 `scripts/prepare_kaggle_kernel.py` copies `features.reference.dataset_source` into kernel `dataset_sources`. `scripts/blend_oof.py` supports `mean` / `rank` / `logit` / `grid` / `geom` / `power` / `rank_grid` / `geom_grid` / `power_grid` (`--power` for the power methods) and fails loud on pred-shape / npy / diagnostic-mix mismatches. `scripts/install_kernel_oof.py` is the only safe way to replace `oof/catboost_exactcat_budget_v1/` (requires accelerator=cpu and n_cat=9; preserves the PR #11 GPU orig-cats dump as `catboost_exactcat_budget_pr11_origcats`). `scripts/analyze_error_band.py` writes `experiments/error_band_<name>.json` from saved OOF (no training). `features.hard_band` trains only on / reweights rows whose frozen base OOF p is in `(lo, hi)`.
 
 ## Remaining *runtime-only* work (this VM cannot finish)
 
-**Code-level 80k levers are exhausted.** Every isolated YAML in the table above has a stop verdict, a recorded 5-fold, or is already a running seed kernel. There is no unrejected new 80k knob left (do not invent another `border_count` / `l2_leaf_reg` / `rsm` / Lossguide / CPU-depth-6 / lr-only LGBM just to keep iterating). `lgbm_nocat_lr02` already has 80k (+0.0006); freq showed 80k lift does not scale — do not 5-fold it. Refdist 5-fold is optional confirmation of an already-flat 80k; not promoted. Remaining work is **harvest + blend of kernels already in flight**.
+**Code-level 80k levers are exhausted** except one public-evidence LGBM knob that is not another CatBoost `border_count` decrease: `configs/lgbm_nocat_maxbin_v1.yaml` (`max_bin: 2047`). Do not invent `rsm` / Lossguide / CPU-depth-6 / lr-only LGBM. `lgbm_nocat_lr02` already has 80k (+0.0006); freq showed 80k lift does not scale — do not 5-fold it. Refdist 5-fold is optional confirmation of an already-flat 80k; not promoted. Remaining work is **harvest + blend of kernels already in flight**, then a CPU LGBM max_bin 5-fold when a slot is free.
 
 - **Blocker:** CPU drop-cats kernel https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1 is still **RUNNING**. **CPU drop-cats 5-fold is NOT in LOG.md.** When COMPLETE, install with `scripts/install_kernel_oof.py` (refuses GPU/`n_cat=12`; preserves PR #11 as `oof/catboost_exactcat_budget_pr11_origcats/`), then:
   `python scripts/blend_oof.py --experiments lgbm_nocat_seedavg catboost_exactcat_budget_gpu_depth6_v1 catboost_exactcat_budget_v1 --method geom_grid --name geomgrid_seedavg_gpu_depth6_cb_cpu`
@@ -311,6 +312,7 @@ Joint-pair / refdist / identity / Plain / Bernoulli / entity_mlp YAMLs were **no
 - `gpu_depth6_v1` kernel **COMPLETE** and recorded.
 - Optional-torch `entity_mlp_hash_v1` 80k diagnostic **done** (0.921705). Do not 5-fold.
 - Pseudo-labelling (high leak risk) and calibration (cannot move ROC-AUC) stay rejected.
+- **Next LGBM 5-fold (not launched):** `configs/lgbm_nocat_maxbin_v1.yaml`. Public writeup [kitopl/max-bin](https://www.kaggle.com/code/kitopl/max-bin) is the only untried small-step with measured 5-fold lift that is not an 80k-stopped knob. Do **not** treat it as CatBoost `border_count`. Do **not** kick a new CatBoost CPU kernel. After OOF exists, `geom_grid` with seedavg / GPU depth6 / PR #11 lattice+refdist — do not re-run geom/rank/power on the old 0.968191 columns alone.
 
 ```bash
 # GHA path (403 for this cloud agent; run from a repo admin):
