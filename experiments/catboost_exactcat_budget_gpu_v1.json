@@ -1,0 +1,19 @@
+{
+  "experiment": "catboost_exactcat_budget_gpu_v1",
+  "git_commit": "751cae1f10861e34f09bad97b22899447c2a3b57",
+  "config": "/kaggle/working/src/configs/catboost_exactcat_budget_gpu_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "exactcat_budget_v1",
+  "model_version": "catboost_gpu_v1",
+  "accelerator": "gpu",
+  "cv_auc": 0.9677317285332205,
+  "runtime_seconds": 1320.43,
+  "timestamp": "2026-08-23T18:10:30Z",
+  "environment": "kaggle",
+  "hypothesis": "Same CatBoost exact-cat+budget model as catboost_exactcat_budget_v1, run on a Kaggle GPU kernel so task_type=GPU (via runtime.accelerator). Isolates accelerator only; does not change LightGBM.",
+  "change": "catboost_exactcat_budget_v1 with runtime.accelerator gpu.",
+  "cv_std": 0.0004816101568333467,
+  "diagnostic": false,
+  "backend": "catboost"
+}
