@@ -6,6 +6,7 @@ These transforms never see the label. Exact-value *target* statistics stay in
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import numpy as np
@@ -57,6 +58,11 @@ def format_exact_keys(series: pd.Series, decimals: int, missing_token: str) -> p
     return out
 
 
+def _stable_bucket(text: str, n_bins: int) -> str:
+    digest = hashlib.md5(text.encode("utf-8")).hexdigest()
+    return str(int(digest, 16) % int(n_bins))
+
+
 def exact_categorical_column_names(config: dict[str, Any]) -> list[str]:
     block = config["features"].get("exact_categorical") or {}
     if not bool(block.get("enabled", False)):
@@ -98,7 +104,12 @@ def add_exact_categorical_features(
     for column in columns:
         decimals = int(decimal_places.get(column, 8))
         keys = format_exact_keys(out[column], decimals, missing_token)
-        out[f"{column}{suffix}"] = column + "=" + keys
+        labels = column + "=" + keys
+        hash_bins = block.get("hash_bins")
+        if hash_bins:
+            n_bins = int(hash_bins)
+            labels = labels.map(lambda text: f"{column}#h{_stable_bucket(str(text), n_bins)}")
+        out[f"{column}{suffix}"] = labels
     return out
 
 

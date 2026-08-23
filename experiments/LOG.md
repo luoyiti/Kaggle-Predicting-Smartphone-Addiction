@@ -47,6 +47,36 @@ unseen-value rates are fake. These rows use the **full train**.
 | histgb_nocat_diag80000 | HistGB on the nocat feature set | HistGB + drop cats | 0.953985 | 0.000313 | 10s | Matches LGBM within 0.0003. | Blend with lgbm_nocat |
 | blend_nocat_diag80000 | Complementary tree errors | Grid 0.55 LGBM + 0.45 HistGB | **0.954887** | — | — | +0.00057 vs best single. Corr 0.990 — small, consistent lift. | Repeat on full 5-fold OOF |
 
+### 80k ranking of remaining paths (this iteration — still not a leaderboard number)
+
+Same protocol as the table above: stratified 80,000-row subsample, 3 folds, seed 42.
+Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ranking row).
+
+| experiment | hypothesis | change | CV AUC | fold std | runtime | conclusion | next step |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| catboost_numeric_v1_diag80000 | CatBoost family on nocat numerics | 9 numeric cols, no exact cats | 0.952448 | 0.000279 | 31s | −0.0019 vs LGBM. Family alone is not the win. | Control only |
+| catboost_exactcat_v1_diag80000 | Exact values as CatBoost categories | + 9 `__exact` string cats | **0.960525** | 0.000173 | 115s | **+0.0062 vs LGBM.** Pearson vs LGBM 0.963 (more diverse than HistGB 0.99). | Full 5-fold on Kaggle |
+| catboost_exactcat_budget_v1_diag80000 | Screen-budget arithmetic on top | remainder/share/awake | **0.961641** | 0.000200 | 124s | **+0.0011 vs exactcat.** Best single 80k model here. | Full 5-fold on Kaggle |
+| catboost_exactcat_lattice_v1_diag80000 | Fractional / first-decimal | decimal_lattice.enabled | 0.960671 | 0.000124 | 107s | Flat vs exactcat (+0.00015). | Stop |
+| catboost_origcats_v1_diag80000 | Keep gender/stress/academic | no drop, no exact cats | 0.951988 | 0.000373 | 38s | Original cats still noise in CatBoost. | Stop |
+| lgbm_freq_v1_diag80000 | Fold-safe value frequency | log1p counts, no labels | 0.955410 | 0.000082 | 18s | **+0.0011 vs LGBM.** Small, real on this protocol. | Optional full-data screen |
+| lgbm_exactcat_v1_diag80000 | LGBM categorical splits on exact copies | same copies as CatBoost | 0.955291 | 0.000351 | 10s | Tiny lift; not CatBoost CTR. | Stop as a solo; optional blend |
+| lgbm_nocat_lr02_diag80000 | Slower learning rate | lr 0.02, 8000 rounds | 0.954934 | 0.000297 | 65s | +0.0006 vs nocat. Small. | Optional |
+| lgbm_nocat_mono_diag80000 | Monotone usage/sleep | constraints | 0.952208 | 0.000257 | 18s | Hurts. Identity columns are not monotone. | Stop |
+| lgbm_nocat_extratrees_diag80000 | extra_trees | extra_trees true | 0.939472 | 0.000548 | 32s | **−0.015. Failed.** | Stop |
+| xgb_nocat_diag80000 | XGB on nocat view | drop 3 cats | 0.952417 | 0.000419 | 29s | Matches xgb_raw. Cats were not XGB's problem. | Stop unless GPU HPO |
+| histgb_nocat_long_v1_diag80000 | More HistGB trees | max_iter 2500 | 0.954014 | 0.000231 | 14s | Flat vs histgb_nocat 80k (0.953985). The 500-iter cap was a full-data issue. | Full 5-fold still useful |
+| histgb_exactcat_v1_diag80000 | HistGB native exact cats | un-hashed copies | — | — | 4s | **Failed:** cardinality 1244 > max_bins 255. | Use hashed variant / skip |
+| histgb_exactcat_hashed_v1_diag80000 | Hash exact cats into 128 bins | hash_bins=128 | 0.944809 | 0.000469 | 14s | Hashing destroys identity. **−0.009 vs nocat.** | Stop |
+| logreg_exact_te_v1_diag80000 | Linear identity stacker | logistic + TE of 9 nums | 0.942985 | 0.000631 | 5s | +0.032 vs logreg_raw 0.911. Still below trees. Possible weak stacker. | Optional stack component |
+| mlp_nocat_diag80000 | sklearn MLP diversity | 64-32 MLP | 0.931215 | 0.000739 | 14s | Too weak to stack. | Stop |
+| blend_lgbm_cb_budget_diag80000 | Complementary errors | grid 0.2 LGBM + 0.8 CB budget | **0.961967** | — | — | +0.00033 vs best single. Corr 0.961. | Repeat on full 5-fold OOF |
+| stack_lgbm_cb_freq_diag80000 | Logistic stack of 3 | inner-CV logistic | 0.961897 | — | — | No better than 2-model grid. | Prefer grid of LGBM+CB budget |
+
+**Promote to Kaggle 5-fold (in this order):** `catboost_exactcat_budget_v1`, `catboost_exactcat_v1` (ablation), `lgbm_freq_v1`, then grid-blend with `lgbm_nocat`.
+
+**Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO.
+
 ## Answers so far
 
 **What actually determines `addicted_label`?**
@@ -105,6 +135,12 @@ Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submi
 - Mean-blending nocat with OOF exact-value TE (≤ +0.00002).
 - `other_screen` / `component_sum` / `weekend − daily` / value-frequency / fractional parts as extra GBM columns (residual vs nocat ≈ 0).
 - Another LGBM+HistGB probability blend pass.
+- `extra_trees` LightGBM on nocat (80k −0.015).
+- Monotone constraints on usage/sleep (identity columns are not monotone).
+- Keeping original gender/stress/academic in CatBoost.
+- Decimal-lattice extras on top of CatBoost exact-cat (flat).
+- Hashing exact-value cats into ≤255 bins for HistGB (destroys identity; raw exact cats exceed max_bins).
+- sklearn MLP on nocat numerics (0.931 on 80k).
 
 ## Remaining paths armed in this iteration (no AUC until metrics.json)
 

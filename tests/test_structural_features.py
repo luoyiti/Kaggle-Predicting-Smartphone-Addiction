@@ -100,6 +100,41 @@ def test_screen_budget_remainder(tmp_path):
     assert out.loc[0, "awake_non_screen_hours"] == 24.0 - 7.0 - 8.0
 
 
+def test_hash_bins_caps_cardinality(tmp_path):
+    config = _config(
+        tmp_path,
+        {
+            "exact_categorical": {
+                "enabled": True,
+                "columns": ["daily_screen_time_hours"],
+                "suffix": "__exact",
+                "hash_bins": 8,
+                "decimal_places": {"daily_screen_time_hours": 2},
+            }
+        },
+    )
+    frame = pd.DataFrame(
+        {
+            "id": range(40),
+            "age": 20,
+            "daily_screen_time_hours": np.linspace(1, 10, 40),
+            "social_media_hours": 1.0,
+            "gaming_hours": 1.0,
+            "work_study_hours": 1.0,
+            "sleep_hours": 7.0,
+            "notifications_per_day": 10,
+            "app_opens_per_day": 5,
+            "weekend_screen_time": 8.0,
+            "gender": "Male",
+            "stress_level": "Low",
+            "academic_work_impact": "No",
+            "addicted_label": 1,
+        }
+    )
+    out = add_exact_categorical_features(frame, config)
+    assert out["daily_screen_time_hours__exact"].nunique() <= 8
+
+
 def test_disabled_structural_blocks_add_nothing(tmp_path):
     config = _config(tmp_path, {"exact_categorical": {"enabled": False}})
     out = transform(_frame(), config)

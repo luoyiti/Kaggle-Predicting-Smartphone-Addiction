@@ -24,17 +24,15 @@ output:
   save_submission: true
   dtype: float64
 experiment:
-  name: histgb_exactcat_v1
+  name: histgb_exactcat_hashed_v1
   seed: 42
   data_version: v1
-  feature_version: exactcat_v1
+  feature_version: exactcat_hashed128_v1
   model_version: histgb_v1
-  hypothesis: >
-    sklearn HistGB categorical_features=from_dtype on exact-value copies.
-    80k diagnostic failed because daily_screen_time_hours__exact cardinality
-    1244 exceeds max_bins 255. Keep this YAML as the un-hashed control;
-    use histgb_exactcat_hashed_v1 instead.
-  change: histgb_nocat plus features.exact_categorical.enabled.
+  hypothesis: 'HistGB cannot ingest raw exact-value cats (cardinality exceeds 255). MD5-stable
+    hash into 128 bins keeps a categorical identity signal under max_bins. One variable vs
+    histgb_nocat: hashed exact_categorical copies.'
+  change: histgb_nocat plus exact_categorical.enabled with hash_bins=128.
 features:
   numeric:
   - age
@@ -77,6 +75,7 @@ features:
       notifications_per_day: 0
       app_opens_per_day: 0
       weekend_screen_time: 2
+    hash_bins: 128
   screen_budget:
     enabled: false
     tolerance: 1.0e-09
