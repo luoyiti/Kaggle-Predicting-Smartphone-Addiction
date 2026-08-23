@@ -1,0 +1,19 @@
+{
+  "experiment": "lgbm_nocat_seed2026",
+  "git_commit": "23b1f44fe6066e1bb238cde02e53a3d0e6f72d9b",
+  "config": "/kaggle/working/src/configs/lgbm_nocat_seed2026.yaml",
+  "seed": 2026,
+  "data_version": "v1",
+  "feature_version": "nocat_v1",
+  "model_version": "lgbm_v1",
+  "accelerator": "cpu",
+  "cv_auc": 0.9636909277000907,
+  "runtime_seconds": 857.249,
+  "timestamp": "2026-08-23T19:36:17Z",
+  "environment": "kaggle",
+  "hypothesis": "Third seed for a 42/7/2026 average of lgbm_nocat. Isolates seed only.",
+  "change": "lgbm_nocat with seed 2026.",
+  "cv_std": 0.0006412052665336588,
+  "diagnostic": false,
+  "backend": "lightgbm"
+}

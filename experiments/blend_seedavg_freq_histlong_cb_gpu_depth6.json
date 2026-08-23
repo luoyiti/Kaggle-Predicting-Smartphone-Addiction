@@ -1,0 +1,27 @@
+{
+  "experiment": "blend_seedavg_freq_histlong_cb_gpu_depth6",
+  "cv_auc": 0.9680597373276929,
+  "method": "grid",
+  "components": [
+    "lgbm_nocat_seedavg",
+    "lgbm_freq_v1",
+    "histgb_nocat_long_v1",
+    "catboost_exactcat_budget_gpu_depth6_v1"
+  ],
+  "weights": {
+    "lgbm_nocat_seedavg": 0.1,
+    "lgbm_freq_v1": 0.0,
+    "histgb_nocat_long_v1": 0.05,
+    "catboost_exactcat_budget_gpu_depth6_v1": 0.85
+  },
+  "component_auc": {
+    "lgbm_nocat_seedavg": 0.9642867064770508,
+    "lgbm_freq_v1": 0.963800550629735,
+    "histgb_nocat_long_v1": 0.9634682524075684,
+    "catboost_exactcat_budget_gpu_depth6_v1": 0.9679293409270637
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "grid blend of lgbm_nocat_seedavg, lgbm_freq_v1, histgb_nocat_long_v1, catboost_exactcat_budget_gpu_depth6_v1"
+}
