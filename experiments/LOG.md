@@ -74,10 +74,11 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 | blend_lgbm_cb_budget_diag80000 | Complementary errors | grid 0.2 LGBM + 0.8 CB budget | **0.961967** | — | — | +0.00033 vs best single. Corr 0.961. | Repeat on full 5-fold OOF |
 | stack_lgbm_cb_freq_diag80000 | Logistic stack of 3 | inner-CV logistic | 0.961897 | — | — | No better than 2-model grid. | Prefer grid of LGBM+CB budget |
 | catboost_exactcat_budget_refdist_v1_diag80000 | Target-free original 7500-row CDF / robust-z / source-frequency / kNN | `features.reference.enabled` on top of budget; labels dropped; overlap filter on train+test | 0.961669 | 0.000225 | ~159s | **Flat vs budget 0.961641** (+0.00003). retained=7500, overlap_removed=0, +18 columns. | Do not prioritize a 5-fold; PR11 lattice+refdist 5-fold only +0.00021 |
+| catboost_exactcat_budget_joint_v1_diag80000 | Explicit notif\\|app exact-value token | `exact_categorical.joint_pairs` on top of budget; n_cat=10 | 0.961698 | 0.000280 | 155s | **Flat vs budget 0.961641** (+0.00006). Pairwise CatBoost CTRs already cover the joint key. | Do not prioritize a 5-fold |
 
-**Promote to Kaggle 5-fold (in this order):** `catboost_exactcat_budget_v1` (this-branch YAML drops original cats; a drop-cats CPU kernel was pushed 2026-08-23), then grid-blend with `lgbm_nocat`. Seed-average after that lands.
+**Promote to Kaggle 5-fold (in this order):** `catboost_exactcat_budget_v1` (this-branch YAML drops original cats; CPU kernel `s6e8-cb-exactcat-budget-dropcats-v1` still running as of 2026-08-23 17:40 UTC), then grid-blend with `lgbm_nocat`. Seed-average after those 5-folds land.
 
-**Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO, **target-free original-source refdist** (flat vs budget).
+**Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO, **target-free original-source refdist** (flat vs budget), **explicit notif\\|app joint exact token** (flat vs budget).
 
 ## Answers so far
 
@@ -160,13 +161,21 @@ The 0.968294 row uses Lookup-Transformer **only as an already-trained blender**.
 ## Kernel kick for this-branch YAML (cats dropped)
 
 `gh workflow run` returned **HTTP 403** (integration cannot `workflow_dispatch`).
+Local `kaggle kernels push` only. `submit_to_kaggle` was **not** used. Do **not** overwrite PR #11 slugs
+`yitiluo/s6e8-catboost-exactcat-budget-v1` or `yitiluo/s6e8-catboost-exactcat-v1`.
 
-Local `kaggle kernels push` for this checkout's `configs/catboost_exactcat_budget_v1.yaml` (CPU, original cats **dropped**) was accepted:
+Status snapshot **2026-08-23 17:40 UTC** (`python3 -m kaggle kernels status`):
 
-- https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1
-- Status after push: **RUNNING**
-- `submit_to_kaggle` was not used
-- Do not overwrite PR #11's `yitiluo/s6e8-catboost-exactcat-budget-v1` kernel
+| experiment YAML | kernel | acc | status |
+| --- | --- | --- | --- |
+| `catboost_exactcat_budget_v1` | [yitiluo/s6e8-cb-exactcat-budget-dropcats-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1) | CPU | **RUNNING** (this-branch 5-fold; cats dropped) |
+| `lgbm_freq_v1` | [yitiluo/s6e8-lgbm-freq-v1](https://www.kaggle.com/code/yitiluo/s6e8-lgbm-freq-v1) | CPU | **RUNNING** |
+| `catboost_exactcat_budget_seed7` | [yitiluo/s6e8-cb-budget-seed7-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-budget-seed7-v1) | CPU | **RUNNING** |
+| `catboost_exactcat_budget_seed2026` | [yitiluo/s6e8-cb-budget-seed2026-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-budget-seed2026-v1) | CPU | **RUNNING** |
+| `catboost_exactcat_v1` | [yitiluo/s6e8-cb-exactcat-dropcats-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-dropcats-v1) | CPU | **RUNNING** (this-branch ablation; cats dropped; unique slug) |
+| `catboost_exactcat_budget_gpu_v1` | [yitiluo/s6e8-cb-budget-dropcats-gpu-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-budget-dropcats-gpu-v1) | GPU | **QUEUED** (GPU slot was free; one GPU kernel only) |
+
+`gpu_depth6_v1` was **not** pushed (do not stampede GPU). Joint-pair YAML was **not** pushed (80k flat).
 
 ## Not worth more budget
 
@@ -187,6 +196,7 @@ Local `kaggle kernels push` for this checkout's `configs/catboost_exactcat_budge
 - sklearn MLP on nocat numerics (0.931 on 80k).
 - Lookup-Transformer as a **solo** model (PR #11 5-fold 0.965339 < CatBoost 0.967681). Do not revive it; optional-torch path is hashed-entity MLP.
 - Target-free original-source refdist on CatBoost budget (80k **0.961669 vs 0.961641**). Code is landed; a dedicated 5-fold is optional confirmation only.
+- Explicit `notifications_per_day|app_opens_per_day` joint exact-cat token on CatBoost budget (80k **0.961698 vs 0.961641**). Pairwise CTRs already cover it; do not 5-fold.
 
 ## Code-level paths landed this iteration
 
@@ -196,17 +206,19 @@ Local `kaggle kernels push` for this checkout's `configs/catboost_exactcat_budge
 | `catboost_exactcat_budget_seed7` / `_seed2026` | seed only | mean-blend after 5-folds exist |
 | `catboost_exactcat_budget_gpu_v1` | `runtime.accelerator: gpu` | YAML only; LightGBM unchanged |
 | `catboost_exactcat_budget_gpu_depth6_v1` | depth 6 vs GPU v1 | YAML only |
-| `entity_mlp_hash_v1` | hashed-entity residual MLP | smoke skips without torch |
+| `entity_mlp_hash_v1` | hashed-entity residual MLP | smoke skips without torch; **torch still missing on this VM** — 80k diagnostic not run |
+| `catboost_exactcat_budget_joint_v1` | `exact_categorical.joint_pairs` notif\\|app | 80k **flat** vs budget; YAML kept for the isolated lever |
 
 `scripts/prepare_kaggle_kernel.py` copies `features.reference.dataset_source` into kernel `dataset_sources`. `scripts/blend_oof.py --method mean` is the seed-average glue.
 
 ## Remaining *runtime-only* work (this VM cannot finish)
 
-- Wait for https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1 (this-branch 5-fold, cats dropped) then grid-blend with `lgbm_nocat`.
-- Seed-averaged CatBoost 5-folds (`seed7`, `seed2026`) then `blend_oof.py --method mean`.
-- CatBoost GPU HPO **runs** (`gpu_v1`, `gpu_depth6_v1`).
-- Optional `lgbm_freq_v1` 5-fold (80k +0.001).
-- Optional-torch `entity_mlp_hash_v1` ranking when torch is installed (not Lookup-Transformer).
+- **Blocker for this-branch SOTA:** wait for https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1 then download OOF/metrics and `python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1 --method grid --name blend_lgbm_cb_budget`. Do not claim a 5-fold until that `metrics.json` exists.
+- Seed-averaged CatBoost 5-folds (`seed7`, `seed2026` kernels already **RUNNING**) then `blend_oof.py --method mean`.
+- This-branch `catboost_exactcat_v1` drop-cats ablation kernel already **RUNNING**.
+- `lgbm_freq_v1` 5-fold kernel already **RUNNING**.
+- GPU `catboost_exactcat_budget_gpu_v1` kernel **QUEUED**. `gpu_depth6_v1` still unrun (optional; do not stampede GPU).
+- Optional-torch `entity_mlp_hash_v1` ranking when torch is installed (not Lookup-Transformer). This VM: `ModuleNotFoundError: No module named 'torch'` — skip stands.
 - Pseudo-labelling (high leak risk) and calibration (cannot move ROC-AUC) stay rejected.
 
 ```bash
