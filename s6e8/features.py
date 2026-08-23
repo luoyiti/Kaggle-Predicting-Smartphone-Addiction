@@ -142,10 +142,11 @@ def add_engineered_features(df: pd.DataFrame, config: dict[str, Any]) -> pd.Data
 
 def categorical_feature_columns(df: pd.DataFrame, config: dict[str, Any]) -> list[str]:
     """Categorical columns present after transform, including generated exact copies."""
+    extra_drop = set(config["features"].get("drop") or [])
     columns = [
         column
         for column in config["features"].get("categorical", [])
-        if column in df.columns
+        if column in df.columns and column not in extra_drop
     ]
     columns.extend(
         name for name in exact_categorical_column_names(config) if name in df.columns
@@ -154,7 +155,7 @@ def categorical_feature_columns(df: pd.DataFrame, config: dict[str, Any]) -> lis
         name for name in lattice_categorical_column_names(config) if name in df.columns
     )
     extra = config["features"].get("extra_categorical") or []
-    columns.extend(name for name in extra if name in df.columns)
+    columns.extend(name for name in extra if name in df.columns and name not in extra_drop)
     return list(dict.fromkeys(columns))
 
 

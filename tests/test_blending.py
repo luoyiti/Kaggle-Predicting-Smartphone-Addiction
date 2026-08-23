@@ -15,11 +15,10 @@ def test_blend_mean_is_average():
 
 
 def test_grid_prefers_the_better_model():
-    rng = np.random.default_rng(0)
-    y = np.array([0, 0, 0, 0, 1, 1, 1, 1])
-    good = y.astype(float) * 0.8 + 0.1
-    noise = rng.random(len(y))
-    oof, _, w = blend_grid([good, noise], [good, noise], y, step=25)
+    y = np.array([0, 0, 1, 1])
+    good = np.array([0.1, 0.2, 0.8, 0.9])
+    bad = 1.0 - good
+    oof, _, w = blend_grid([good, bad], [good, bad], y, step=25)
     assert w[0] > w[1]
     from sklearn.metrics import roc_auc_score
 
