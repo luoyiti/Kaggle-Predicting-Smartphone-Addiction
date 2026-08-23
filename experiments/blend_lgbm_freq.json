@@ -1,0 +1,21 @@
+{
+  "experiment": "blend_lgbm_freq",
+  "cv_auc": 0.9642077616222455,
+  "method": "grid",
+  "components": [
+    "lgbm_nocat",
+    "lgbm_freq_v1"
+  ],
+  "weights": {
+    "lgbm_nocat": 0.5,
+    "lgbm_freq_v1": 0.5
+  },
+  "component_auc": {
+    "lgbm_nocat": 0.9637713704727537,
+    "lgbm_freq_v1": 0.963800550629735
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "grid blend of lgbm_nocat, lgbm_freq_v1"
+}

@@ -1,0 +1,19 @@
+{
+  "experiment": "lgbm_freq_v1",
+  "git_commit": "751cae1f10861e34f09bad97b22899447c2a3b57",
+  "config": "/kaggle/working/src/configs/lgbm_freq_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "nocat_freq_v1",
+  "model_version": "lgbm_v1",
+  "accelerator": "cpu",
+  "cv_auc": 0.963800550629735,
+  "runtime_seconds": 750.334,
+  "timestamp": "2026-08-23T17:49:26Z",
+  "environment": "kaggle",
+  "hypothesis": "Exact-value identity may also appear as rarity (how often this notif/app value occurs). Fold-safe log1p frequency uses no labels, unlike TE which hijacked LGBM early stopping. One variable vs lgbm_nocat: frequency_encoding.",
+  "change": "lgbm_nocat plus fold-safe frequency encoding of notifications, app_opens, sleep, age, gaming, work_study.",
+  "cv_std": 0.0005218950797036745,
+  "diagnostic": false,
+  "backend": "lightgbm"
+}
