@@ -29,9 +29,9 @@ experiment:
   data_version: v1
   feature_version: exactcat_budget_v1
   model_version: catboost_gpu_depth6_v1
-  hypothesis: Shallower CatBoost trees (depth 6 vs 8) may reduce ordered-CTR overfit
-    on exact-value cats. One variable vs catboost_exactcat_budget_gpu_v1: model.params.depth.
-    GPU kernel ready; does not change LightGBM.
+  hypothesis: 'Shallower CatBoost trees (depth 6 vs 8) may reduce ordered-CTR overfit
+    on exact-value cats. One variable vs catboost_exactcat_budget_gpu_v1 is model.params.depth.
+    GPU kernel ready; does not change LightGBM.'
   change: catboost_exactcat_budget_gpu_v1 with depth 6.
 features:
   numeric:

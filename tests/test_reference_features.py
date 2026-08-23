@@ -309,8 +309,12 @@ def test_prepare_xy_includes_reference_columns(tmp_path):
     cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
     config = load_config(cfg_path)
 
-    train = pd.DataFrame([_full_predictor_row(i) | {"id": i, "addicted_label": i % 2} for i in range(12)])
-    test = pd.DataFrame([_full_predictor_row(100 + i) | {"id": 100 + i} for i in range(4)])
+    train = pd.DataFrame(
+        [_full_predictor_row(20 + i) | {"id": i, "addicted_label": i % 2} for i in range(12)]
+    )
+    test = pd.DataFrame(
+        [_full_predictor_row(100 + i) | {"id": 100 + i} for i in range(4)]
+    )
     X, y = split_xy(train, config)
     X_tr, X_te, y_np, cols, cat_cols, meta = _prepare_xy(X, test, y, config)
     assert any(c.startswith("ref_") for c in cols)
