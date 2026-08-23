@@ -144,6 +144,7 @@ Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submi
 - Decimal-lattice extras on top of CatBoost exact-cat (flat).
 - Hashing exact-value cats into ≤255 bins for HistGB (destroys identity; raw exact cats exceed max_bins).
 - sklearn MLP on nocat numerics (0.931 on 80k).
+- Lookup-Transformer (draft PR #11 failed its solo gate). Do not revive it; the optional-torch path is hashed-entity MLP.
 
 ## Configs ready for Kaggle 5-fold
 
@@ -159,14 +160,63 @@ official 5-fold scores. Run these on Kaggle Kernels next:
 
 ```bash
 python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1 --method grid --name blend_lgbm_cb_budget
+python scripts/blend_oof.py --experiments catboost_exactcat_budget_v1 catboost_exactcat_budget_seed7 catboost_exactcat_budget_seed2026 --method mean --name catboost_exactcat_budget_seedavg
 ```
 
-### Still unexplored after this iteration
+Kick the primary CatBoost 5-fold (do **not** submit):
 
-- Target-free **reference distribution** features from the 7,500-row source (do **not** append those rows).
-- TabM / RealMLP / FT-Transformer (optional `torch`). Draft PR #11 Lookup-Transformer failed its solo gate.
-- CatBoost GPU HPO (depth / l2 / subsample) after the 5-fold exact-cat+budget score exists.
-- Seed-averaged CatBoost (expensive; do after the seed-42 5-fold).
+```text
+GitHub → Actions → Kaggle Train → Run workflow
+  config=configs/catboost_exactcat_budget_v1.yaml
+  accelerator=cpu
+  submit_to_kaggle=false
+```
+
+```bash
+gh workflow run kaggle-train.yml \
+  -f config=configs/catboost_exactcat_budget_v1.yaml \
+  -f accelerator=cpu \
+  -f submit_to_kaggle=false
+```
+
+Local equivalent (bundles this checkout; still trains on Kaggle, not this VM):
+
+```bash
+python3 scripts/setup_kaggle_auth.py
+python3 scripts/prepare_kaggle_kernel.py \
+  --config configs/catboost_exactcat_budget_v1.yaml \
+  --accelerator cpu \
+  --username "$KAGGLE_USERNAME" \
+  --slug s6e8-catboost-exactcat-budget-v1
+kaggle kernels push -p .kernel-staging
+```
+
+The `catboost_exactcat_budget_refdist_v1` kernel also needs dataset
+`jayjoshi37/smartphone-usage-and-addiction-prediction` attached (done automatically
+from `features.reference.dataset_source`). Download locally with:
+
+```bash
+python3 -m kaggle datasets download -p data/raw --unzip jayjoshi37/smartphone-usage-and-addiction-prediction
+```
+
+### Code-level paths landed this iteration (not 5-fold scores)
+
+| config | isolated variable |
+| --- | --- |
+| `catboost_exactcat_budget_refdist_v1` | target-free original-source CDF / robust-z / frequency / kNN vs `catboost_exactcat_budget_v1` |
+| `catboost_exactcat_budget_seed7` / `_seed2026` | seed only; mean-blend via `scripts/blend_oof.py --method mean` |
+| `catboost_exactcat_budget_gpu_v1` | `runtime.accelerator: gpu` (CatBoost `task_type=GPU`; LightGBM unchanged) |
+| `catboost_exactcat_budget_gpu_depth6_v1` | depth 6 vs GPU v1 |
+| `entity_mlp_hash_v1` | optional-torch hashed-entity residual MLP (not Lookup-Transformer) |
+
+### Still unexplored after this iteration (runtime-only unless noted)
+
+- **Kaggle 5-fold** `catboost_exactcat_budget_v1` (code ready; this VM must not run it).
+- 5-fold ablations: `catboost_exactcat_v1`, `lgbm_freq_v1`, `histgb_nocat_long_v1`, LGBM seedavg, then grid-blend LGBM+CB.
+- 5-fold `catboost_exactcat_budget_refdist_v1` after the original dataset is attached.
+- CatBoost GPU HPO **runs** (YAMLs ready: `gpu_v1`, `gpu_depth6_v1`).
+- Seed-averaged CatBoost **after** the three 5-fold OOF dumps exist.
+- Optional-torch `entity_mlp_hash_v1` ranking (CI skips without torch; do not revive Lookup-Transformer).
 - Pseudo-labelling (high leak risk on playground identity).
 - Calibration (monotone; cannot move single-model ROC-AUC).
 - Mixing original labelled rows into train (already rejected).

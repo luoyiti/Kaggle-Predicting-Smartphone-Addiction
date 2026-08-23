@@ -38,6 +38,16 @@ Competition CSVs come from the mounted dataset:
 
 not from a second `kaggle competitions download`.
 
+Configs that set `features.reference.enabled` also need the original ~7,500-row
+**source dataset** attached (features only; do not concatenate those labelled
+rows into train). `scripts/prepare_kaggle_kernel.py` copies
+`features.reference.dataset_source` into `kernel-metadata.json` `dataset_sources`.
+Expected typed mount:
+
+```text
+/kaggle/input/datasets/jayjoshi37/smartphone-usage-and-addiction-prediction/Smartphone_Usage_And_Addiction_Analysis_7500_Rows.csv
+```
+
 ## Local dry-run of the runner
 
 From the repo root, with data already in `data/raw/`:

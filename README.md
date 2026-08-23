@@ -137,6 +137,23 @@ Once Kaggle 5-fold OOF exists for CatBoost exact-cat:
 ```bash
 python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1 --method grid
 python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1 --method stack_logistic
+python scripts/blend_oof.py --experiments catboost_exactcat_budget_v1 catboost_exactcat_budget_seed7 catboost_exactcat_budget_seed2026 --method mean --name catboost_exactcat_budget_seedavg
+```
+
+Ready-but-unrun Kernel YAMLs (not 5-fold scores): `configs/catboost_exactcat_budget_v1.yaml` (primary CPU), seed variants `*_seed7` / `*_seed2026`, GPU `configs/catboost_exactcat_budget_gpu_v1.yaml`, HPO `configs/catboost_exactcat_budget_gpu_depth6_v1.yaml`, original-distribution features `configs/catboost_exactcat_budget_refdist_v1.yaml` (attach Kaggle dataset `jayjoshi37/smartphone-usage-and-addiction-prediction`; do **not** append those labelled rows to train). Optional torch NN: `configs/entity_mlp_hash_v1.yaml` (hash embeddings, not Lookup-Transformer).
+
+Kick the primary 5-fold via GitHub → **Actions → Kaggle Train → Run workflow**:
+
+```text
+config=configs/catboost_exactcat_budget_v1.yaml
+accelerator=cpu
+submit_to_kaggle=false
+```
+
+Equivalent CLI (needs `workflow_dispatch` write permission):
+
+```bash
+gh workflow run kaggle-train.yml -f config=configs/catboost_exactcat_budget_v1.yaml -f accelerator=cpu -f submit_to_kaggle=false
 ```
 
 ## Cloud workflow (daily loop)
