@@ -121,6 +121,43 @@ def test_smoke_histgb_and_logreg_backends(tmp_path, baseline_config_path):
         assert len(artifacts["oof"]) == len(train_df)
 
 
+def test_smoke_extratrees_backend(tmp_path, baseline_config_path):
+    train_df, test_df = _synthetic_frames()
+    raw = yaml.safe_load(baseline_config_path.read_text(encoding="utf-8"))
+    raw["paths"]["train"] = str(tmp_path / "train.csv")
+    raw["paths"]["test"] = str(tmp_path / "test.csv")
+    raw["paths"]["sample_submission"] = str(tmp_path / "missing.csv")
+    raw["paths"]["oof_dir"] = str(tmp_path / "oof")
+    raw["paths"]["submission_dir"] = str(tmp_path / "submissions")
+    raw["paths"]["experiments_dir"] = str(tmp_path / "experiments")
+    raw["cv"]["n_splits"] = 2
+    raw["experiment"]["name"] = "synthetic_extratrees"
+    raw["model"]["name"] = "extratrees"
+    raw["model"]["params"] = {"n_estimators": 20, "max_depth": 4, "n_jobs": 1}
+    raw["model"]["num_boost_round"] = 20
+    raw["features"]["engineering"] = {
+        "add_n_missing": False,
+        "add_leisure_hours": False,
+        "add_screen_sleep_ratio": False,
+        "add_weekend_weekday_ratio": False,
+        "add_notif_per_open": False,
+    }
+    train_df.to_csv(raw["paths"]["train"], index=False)
+    test_df.to_csv(raw["paths"]["test"], index=False)
+    cfg_path = tmp_path / "et.yaml"
+    cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    config = load_config(cfg_path)
+    X_train, y = split_xy(train_df, config)
+    artifacts = train_cv(X_train, test_df, y, config)
+    written = save_artifacts(artifacts, config, slice_df=X_train)
+    assert 0.0 <= artifacts["oof_auc"] <= 1.0
+    import json
+
+    metrics = json.loads(Path(written["metrics"]).read_text(encoding="utf-8"))
+    assert "slices" in metrics
+    assert "calibration" in metrics
+
+
 def test_histgb_fit_accepts_missing_x_val():
     """Kaggle images may ship sklearn < 1.7, where HistGB.fit has no X_val."""
     from s6e8.models.train import _filter_init_kwargs, fit_histgb

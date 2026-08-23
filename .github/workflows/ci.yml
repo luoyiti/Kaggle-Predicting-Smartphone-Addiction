@@ -41,8 +41,16 @@ jobs:
       - name: Validate experiment configs
         run: python scripts/validate_configs.py
 
+      - name: Postprocess CLI help
+        run: |
+          python scripts/blend_oof.py --help
+          python scripts/stack_oof.py --help
+          python scripts/calibrate_oof.py --help
+          python scripts/promote.py --help
+          python scripts/audit_data.py --help
+
       - name: Import smoke
-        run: python -c "import s6e8, s6e8.data, s6e8.eda, s6e8.eda_report, s6e8.features, s6e8.models.train, s6e8.reports_index, s6e8.runtime, s6e8.target_encoding"
+        run: python -c "import s6e8, s6e8.calibration, s6e8.contracts, s6e8.data, s6e8.data_audit, s6e8.eda, s6e8.eda_report, s6e8.ensemble, s6e8.error_analysis, s6e8.features, s6e8.metrics, s6e8.models.train, s6e8.oof_io, s6e8.promotion, s6e8.reports_index, s6e8.runtime, s6e8.target_encoding"
 
       - name: Pytest
         run: python -m pytest -q
