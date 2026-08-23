@@ -1,0 +1,24 @@
+{
+  "experiment": "geomgrid_seedavg_gpu_depth6_pr11_refdist",
+  "cv_auc": 0.9682086702404396,
+  "method": "geom_grid",
+  "components": [
+    "lgbm_nocat_seedavg",
+    "catboost_exactcat_budget_gpu_depth6_v1",
+    "catboost_exactcat_budget_lattice_refdist_v1"
+  ],
+  "weights": {
+    "lgbm_nocat_seedavg": 0.15,
+    "catboost_exactcat_budget_gpu_depth6_v1": 0.45,
+    "catboost_exactcat_budget_lattice_refdist_v1": 0.4
+  },
+  "component_auc": {
+    "lgbm_nocat_seedavg": 0.9642867064770508,
+    "catboost_exactcat_budget_gpu_depth6_v1": 0.9679293409270637,
+    "catboost_exactcat_budget_lattice_refdist_v1": 0.9678902672436482
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "geom_grid blend of lgbm_nocat_seedavg, catboost_exactcat_budget_gpu_depth6_v1, catboost_exactcat_budget_lattice_refdist_v1"
+}
