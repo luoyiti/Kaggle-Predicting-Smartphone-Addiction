@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import inspect
 import json
 import random
@@ -50,6 +51,25 @@ BACKEND_ALIASES = {
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
+
+
+def parse_bag_seeds(config: dict[str, Any]) -> list[int]:
+    """Seeds for optional OOF/test averaging. Primary seed is always included."""
+    primary = int(config["experiment"]["seed"])
+    extra = config["experiment"].get("bag_seeds")
+    if extra is None:
+        return [primary]
+    if isinstance(extra, (int, np.integer)):
+        extra_list = [int(extra)]
+    else:
+        extra_list = [int(s) for s in extra]
+    seeds: list[int] = []
+    for seed in extra_list:
+        if seed not in seeds:
+            seeds.append(seed)
+    if primary not in seeds:
+        seeds.insert(0, primary)
+    return seeds
 
 
 def resolve_backend(config: dict[str, Any]) -> str:
@@ -285,7 +305,54 @@ def train_cv(
         "logreg": _fold_logreg,
         "extratrees": _fold_extratrees,
     }
-    return _run_cv(train_df, test_df, y, config, trainers[backend])
+    fold_fn = trainers[backend]
+    seeds = parse_bag_seeds(config)
+    if len(seeds) == 1:
+        if seeds[0] != int(config["experiment"]["seed"]):
+            config = copy.deepcopy(config)
+            config["experiment"]["seed"] = seeds[0]
+        return _run_cv(train_df, test_df, y, config, fold_fn)
+
+    per_seed: list[dict[str, Any]] = []
+    oofs: list[np.ndarray] = []
+    tests: list[np.ndarray] = []
+    last: dict[str, Any] | None = None
+    for seed in seeds:
+        cfg = copy.deepcopy(config)
+        cfg["experiment"]["seed"] = seed
+        print(f"[seedbag] seed={seed}", flush=True)
+        art = _run_cv(train_df, test_df, y, cfg, fold_fn)
+        oofs.append(np.asarray(art["oof"], dtype=float))
+        tests.append(np.asarray(art["test_pred"], dtype=float))
+        per_seed.append(
+            {
+                "seed": seed,
+                "oof_auc": float(art["oof_auc"]),
+                "cv_mean": float(art["cv_mean"]),
+                "cv_std": float(art["cv_std"]),
+                "fold_scores": list(art["fold_scores"]),
+                "best_iterations": list(art["best_iterations"]),
+            }
+        )
+        last = art
+    assert last is not None
+    oof = np.mean(np.vstack(oofs), axis=0).astype(last["oof"].dtype, copy=False)
+    test_pred = np.mean(np.vstack(tests), axis=0).astype(last["test_pred"].dtype, copy=False)
+    oof_auc = float(roc_auc_score(last["y"], oof))
+    print(
+        f"[seedbag] seeds={seeds} mean_oof={oof_auc:.6f} "
+        f"members={[round(s['oof_auc'], 6) for s in per_seed]}",
+        flush=True,
+    )
+    last = dict(last)
+    last["oof"] = oof
+    last["test_pred"] = test_pred
+    last["oof_auc"] = oof_auc
+    last["cv_mean"] = float(np.mean([s["oof_auc"] for s in per_seed]))
+    last["cv_std"] = float(np.std([s["oof_auc"] for s in per_seed]))
+    last["fold_scores"] = [float(s["oof_auc"]) for s in per_seed]
+    last["seed_bag"] = {"seeds": seeds, "method": "mean", "per_seed": per_seed}
+    return last
 
 
 def _fold_lightgbm(X_tr, y_tr, X_va, y_va, X_test, ctx):
@@ -634,6 +701,8 @@ def save_artifacts(
         "model_name": config["model"]["name"],
         "config_path": config.get("_config_path"),
     }
+    if artifacts.get("seed_bag"):
+        metrics["seed_bag"] = artifacts["seed_bag"]
     if slice_df is not None:
         metrics["slices"] = slice_metrics(
             artifacts["y"], artifacts["oof"], slice_df, min_n=50

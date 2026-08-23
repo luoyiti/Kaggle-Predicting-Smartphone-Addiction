@@ -20,8 +20,14 @@ def test_new_train_configs_document_hypothesis():
         "lgbm_nocat_missflags.yaml",
         "lgbm_nocat_interactions.yaml",
         "catboost_nocat.yaml",
+        "catboost_raw.yaml",
         "extratrees_nocat.yaml",
         "xgb_nocat.yaml",
+        "histgb_nocat_moreiter.yaml",
+        "lgbm_nocat_lowlr.yaml",
+        "lgbm_nocat_extra_trees.yaml",
+        "lgbm_nocat_seed43.yaml",
+        "lgbm_nocat_seedbag.yaml",
     )
     for name in required:
         config = load_config(Path("configs") / name)

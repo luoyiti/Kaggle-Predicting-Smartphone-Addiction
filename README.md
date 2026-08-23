@@ -174,6 +174,8 @@ New experiment = new `configs/<unique>.yaml`. Do not edit YAML that already has 
 
 ```bash
 python scripts/train.py --config configs/lgbm_nocat.yaml
+python scripts/train.py --config configs/lgbm_nocat_seedbag.yaml --max-train-rows 80000 --n-splits 3
+python scripts/train.py --config configs/histgb_nocat_moreiter.yaml --max-train-rows 80000 --n-splits 3
 python scripts/audit_data.py --config configs/baseline.yaml
 python scripts/eval_slices.py --experiment lgbm_nocat
 python scripts/error_analysis.py --experiment lgbm_nocat

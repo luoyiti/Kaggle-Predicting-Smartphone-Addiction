@@ -22,5 +22,7 @@ def test_package_imports():
     assert callable(s6e8.eda.run_eda)
     assert callable(s6e8.target_encoding.parse_exact_te_config)
     assert callable(s6e8.promotion.evaluate_promotion)
+    assert callable(s6e8.data_audit.adversarial_train_test_auc)
     assert "lightgbm" in s6e8.models.train.BACKEND_ALIASES
     assert "extratrees" in s6e8.models.train.BACKEND_ALIASES
+    assert callable(s6e8.models.train.parse_bag_seeds)

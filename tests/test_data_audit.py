@@ -66,3 +66,22 @@ def test_unknown_category_is_warning_not_error():
     assert report["ok"] is True
     titles = [f["title"] for f in report["findings"]]
     assert any("gender" in t for t in titles)
+
+
+def test_adversarial_auc_near_chance_when_iid():
+    train, test = _ok_frames(n_train=180, n_test=180)
+    report = audit_tables(train, test, adversarial_max_rows=400)
+    adv = report["adversarial"]
+    assert adv["n"] == 360
+    assert 0.35 <= adv["auc"] <= 0.65
+
+
+def test_adversarial_auc_detects_mean_shift():
+    train, test = _ok_frames(n_train=180, n_test=180)
+    test = test.copy()
+    test["age"] = test["age"] + 80
+    report = audit_tables(train, test, adversarial_max_rows=400)
+    assert report["adversarial"]["auc_flipped"] >= 0.80
+    titles = [f["title"] for f in report["findings"]]
+    assert any("adversarial" in t for t in titles)
+

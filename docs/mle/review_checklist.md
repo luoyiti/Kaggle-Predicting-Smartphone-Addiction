@@ -2,7 +2,7 @@
 
 - [x] Prediction contract is explicit and testable (`docs/mle/prediction_contract.md`, submission schema tests)
 - [x] Data contract defines grain, label timing, split, snapshot (`docs/mle/data_contract.md`, `s6e8/contracts.py`)
-- [x] Leakage risks checked vs prediction-time availability (no future joins; TE is fold-safe; `id` dropped)
+- [x] Leakage risks checked vs prediction-time availability (no future joins; TE is fold-safe; `id` dropped; adversarial train/test AUC in `scripts/audit_data.py`)
 - [x] Training is reproducible from YAML + seed + optional git SHA (`scripts/train.py`)
 - [x] Metrics compare against baseline `lgbm_nocat` (`scripts/promote.py`)
 - [x] Slice metrics for gender / stress / academic / missingness (`s6e8/metrics.py`)

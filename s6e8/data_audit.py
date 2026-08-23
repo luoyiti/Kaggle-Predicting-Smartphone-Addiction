@@ -6,7 +6,13 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import StratifiedKFold
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from s6e8.contracts import (
     CATEGORICAL_COLUMNS,
@@ -54,11 +60,70 @@ def _cat_psi(train: pd.Series, test: pd.Series) -> float:
     return float(np.sum((a - b) * np.log(a / b)))
 
 
+def adversarial_train_test_auc(
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    *,
+    max_rows: int = 40000,
+    seed: int = 42,
+    n_splits: int = 3,
+) -> dict[str, Any]:
+    """AUC of a linear model predicting is_test from numeric columns + missing flags.
+
+    ~0.5 means little covariate shift at this grain. This is an audit, not a feature.
+    """
+    cols = [c for c in NUMERIC_COLUMNS if c in train.columns and c in test.columns]
+    if not cols:
+        return {"auc": float("nan"), "n": 0, "n_splits": n_splits, "skipped": "no numeric overlap"}
+
+    train_x = train[cols].copy()
+    test_x = test[cols].copy()
+    for col in cols:
+        train_x[f"{col}_is_missing"] = train[col].isna().astype("int8")
+        test_x[f"{col}_is_missing"] = test[col].isna().astype("int8")
+    train_x["is_test"] = 0
+    test_x["is_test"] = 1
+    framed = pd.concat([train_x, test_x], ignore_index=True)
+    rng = np.random.default_rng(seed)
+    if len(framed) > max_rows:
+        idx = rng.choice(len(framed), size=max_rows, replace=False)
+        framed = framed.iloc[idx].reset_index(drop=True)
+    y = framed["is_test"].to_numpy()
+    X = framed.drop(columns=["is_test"])
+    if y.min() == y.max():
+        return {"auc": float("nan"), "n": int(len(framed)), "n_splits": n_splits, "skipped": "one class"}
+
+    splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    oof = np.zeros(len(framed), dtype=float)
+    pipe = Pipeline(
+        [
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+            ("model", LogisticRegression(max_iter=400, solver="lbfgs")),
+        ]
+    )
+    for tr_idx, va_idx in splitter.split(X, y):
+        clf = clone(pipe)
+        clf.fit(X.iloc[tr_idx], y[tr_idx])
+        oof[va_idx] = clf.predict_proba(X.iloc[va_idx])[:, 1]
+    auc = float(roc_auc_score(y, oof))
+    return {
+        "auc": auc,
+        "auc_flipped": max(auc, 1.0 - auc),
+        "n": int(len(framed)),
+        "n_splits": n_splits,
+        "max_rows": max_rows,
+        "n_features": int(X.shape[1]),
+    }
+
+
 def audit_tables(
     train: pd.DataFrame,
     test: pd.DataFrame,
     *,
     psi_notable: float = 0.10,
+    adversarial_max_rows: int = 40000,
+    adversarial_seed: int = 42,
 ) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
     payload: dict[str, Any] = {"findings": findings}
@@ -180,6 +245,26 @@ def audit_tables(
                 findings.append({"severity": "warn", "title": f"categorical PSI {col}", "detail": psi_cat[col]})
     payload["psi_numeric"] = psi_num
     payload["psi_categorical"] = psi_cat
+
+    if missing_train or missing_test:
+        payload["adversarial"] = {"skipped": "schema gap"}
+    else:
+        adv = adversarial_train_test_auc(
+            train,
+            test,
+            max_rows=adversarial_max_rows,
+            seed=adversarial_seed,
+        )
+        payload["adversarial"] = adv
+        flipped = float(adv.get("auc_flipped") or 0.0)
+        if np.isfinite(flipped) and flipped >= 0.55:
+            findings.append(
+                {
+                    "severity": "warn",
+                    "title": "adversarial train/test AUC",
+                    "detail": adv.get("auc"),
+                }
+            )
 
     payload["ok"] = not any(f["severity"] == "error" for f in findings)
     return payload

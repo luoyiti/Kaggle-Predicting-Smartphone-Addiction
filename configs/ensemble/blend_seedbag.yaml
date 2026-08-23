@@ -1,0 +1,19 @@
+kind: ensemble
+experiment:
+  name: blend_seedbag_lgbm_nocat
+  seed: 42
+  hypothesis: Mean of three LightGBM seeds is scale-matched and should not need grid search.
+  change: mean blend of lgbm_nocat + lgbm_nocat_seed43 + lgbm_nocat_seed2026
+  expected_effect: Tiny lift vs seed 42; run only when all three OOFs exist.
+  primary_variable: ensemble.method / extra seeds
+
+ensemble:
+  method: mean
+  components:
+    - lgbm_nocat
+    - lgbm_nocat_seed43
+    - lgbm_nocat_seed2026
+
+command: >
+  python scripts/blend_oof.py --experiments lgbm_nocat lgbm_nocat_seed43 lgbm_nocat_seed2026
+  --method mean --name blend_seedbag_lgbm_nocat --write-experiment-record
