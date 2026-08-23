@@ -73,10 +73,11 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 | mlp_nocat_diag80000 | sklearn MLP diversity | 64-32 MLP | 0.931215 | 0.000739 | 14s | Too weak to stack. | Stop |
 | blend_lgbm_cb_budget_diag80000 | Complementary errors | grid 0.2 LGBM + 0.8 CB budget | **0.961967** | — | — | +0.00033 vs best single. Corr 0.961. | Repeat on full 5-fold OOF |
 | stack_lgbm_cb_freq_diag80000 | Logistic stack of 3 | inner-CV logistic | 0.961897 | — | — | No better than 2-model grid. | Prefer grid of LGBM+CB budget |
+| catboost_exactcat_budget_refdist_v1_diag80000 | Target-free original 7500-row CDF / robust-z / source-frequency / kNN | `features.reference.enabled` on top of budget; labels dropped; overlap filter on train+test | 0.961669 | 0.000225 | ~159s | **Flat vs budget 0.961641** (+0.00003). retained=7500, overlap_removed=0, +18 columns. | Do not prioritize a 5-fold; PR11 lattice+refdist 5-fold only +0.00021 |
 
-**Promote to Kaggle 5-fold (in this order):** `catboost_exactcat_budget_v1`, `catboost_exactcat_v1` (ablation), `lgbm_freq_v1`, then grid-blend with `lgbm_nocat`.
+**Promote to Kaggle 5-fold (in this order):** `catboost_exactcat_budget_v1` (this-branch YAML drops original cats; a drop-cats CPU kernel was pushed 2026-08-23), then grid-blend with `lgbm_nocat`. Seed-average after that lands.
 
-**Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO.
+**Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO, **target-free original-source refdist** (flat vs budget).
 
 ## Answers so far
 
@@ -105,8 +106,10 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 
 - On 80k diagnostics, LGBM vs HistGB Pearson ≈ 0.99 and grid blend added ~0.0006.
 - On full 5-fold OOF the same pair is Pearson 0.992. Grid 0.85/0.15 adds only **+0.000035**. HistGB is a weaker partner here because it capped at 500 trees on sklearn 1.6.1 without `X_val`.
+- Kernel `histgb_nocat_long_v1` (max_iter 1400, not this branch's 2500) is 0.963468. Grid 0.60 LGBM + 0.40 long-HistGB is **0.964087** (Pearson 0.994) — better than blend_nocat 0.963806, still far below CatBoost.
 - Do not average in failed ablations (`usage_core`, `lgbm_nocat_exact_te_v1`).
 - Grid-blending `lgbm_nocat` OOF with fold-safe notif/app TE is ≤ **+0.00002**. Logistic stack of nocat+TE **hurts** (−0.0007).
+- PR #11 CatBoost exact-cat+budget 5-fold OOF (GPU, **original cats kept**) Pearson vs `lgbm_nocat` is 0.979. Grid 0.15 LGBM + 0.85 CB budget = **0.967843**. Adding PR #11 lattice+refdist reaches **0.968084** without Lookup-Transformer.
 
 **Where is `lgbm_nocat` still wrong?**
 
@@ -114,18 +117,56 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 - Inside that band **every raw column has AUC ≈ 0.50**. `other_screen`, `component_sum`, weekend−daily, value-frequency, and fractional parts have residual correlation ≈ 0 with `y − p_nocat`.
 - Remaining errors look like generator noise / conflicting usage, not a missing arithmetic feature.
 
-## Full 5-fold jobs (done)
+## Full 5-fold jobs (this repo, main-tracked YAML)
 
 1. `configs/lgbm_nocat.yaml` (CPU) — OOF **0.963771**.
 2. `configs/histgb_nocat.yaml` (CPU) — OOF 0.962140.
 3. `python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid --name blend_nocat` — OOF **0.963806**.
 
-Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submissions/blend_nocat.csv`). Do not `kaggle competitions submit` unless explicitly asked.
+This is still the **main-tracked official SOTA** for YAMLs that landed on `main`. Do **not** `kaggle competitions submit` unless explicitly asked.
 
-## Full-data screens (done, no 5-fold follow-up yet)
+## Full 5-fold from existing Kaggle kernels (PR #11 / earlier; not this-branch YAML)
 
-1. `configs/lgbm_nocat_exact_te_v1.yaml` with `--n-splits 3` — OOF 0.923636. Report: `reports/lgbm_nocat_exact_te_v1.html`.
-2. `configs/catboost_exactcat_budget_v1.yaml` with `--n-splits 3` — OOF **0.967878** (diagnostic; 691,369 rows; folds 0.96747 / 0.96800 / 0.96817). **Not a 5-fold score.** Promote this YAML to a Kaggle Kernel 5-fold next.
+Downloaded 2026-08-23 with the Kaggle API. `diagnostic=false`, `n_splits=5`, `n_train=691369`. CatBoost kernels kept the original 3 categoricals (`n_cat=12`) and ran **GPU**. This branch's `catboost_exactcat_budget_v1.yaml` **drops** those cats. Do not treat PR #11 CatBoost rows as a score for this-branch YAML.
+
+| experiment | kernel | OOF AUC | notes |
+| --- | --- | ---: | --- |
+| lgbm_nocat | [yitiluo/s6e8-lgbm-nocat](https://www.kaggle.com/code/yitiluo/s6e8-lgbm-nocat) | **0.963771** | Same as main-tracked |
+| histgb_nocat_long_v1 | [yitiluo/s6e8-histgb-nocat-long-v1](https://www.kaggle.com/code/yitiluo/s6e8-histgb-nocat-long-v1) | 0.963468 | max_iter **1400** (this branch YAML is 2500); one fold hit the 1400 cap. Still below LGBM |
+| catboost_exactcat_v1 | [yitiluo/s6e8-catboost-exactcat-v1](https://www.kaggle.com/code/yitiluo/s6e8-catboost-exactcat-v1) | 0.966982 | GPU; orig cats kept |
+| catboost_exactcat_budget_v1 | [yitiluo/s6e8-catboost-exactcat-budget-v1](https://www.kaggle.com/code/yitiluo/s6e8-catboost-exactcat-budget-v1) | **0.967681** | GPU; orig cats kept; 1202s |
+| catboost_exactcat_budget_lattice_refdist_v1 | [yitiluo/s6e8-catboost-exactcat-budget-lattice-refdist-v1](https://www.kaggle.com/code/yitiluo/s6e8-catboost-exactcat-budget-lattice-refdist-v1) | **0.967890** | GPU; lattice + target-free refdist; orig cats kept |
+| lookup_transformer_v1 | [yitiluo/s6e8-lookup-transformer-v1](https://www.kaggle.com/code/yitiluo/s6e8-lookup-transformer-v1) | 0.965339 | **Solo gate vs CatBoost failed** (−0.0023 vs budget). Beats LGBM. Do not revive the architecture |
+
+Grid blends of those downloaded OOF dumps (same train ids; not submitted):
+
+| blend | weights | OOF AUC |
+| --- | --- | ---: |
+| lgbm_nocat + histgb_nocat_long_v1 | 0.60 / 0.40 | 0.964087 |
+| lgbm_nocat + catboost_exactcat_budget_v1 | 0.15 / 0.85 | 0.967843 |
+| lgbm_nocat + lattice_refdist | 0.15 / 0.85 | 0.967985 |
+| lgbm + budget + exactcat | 0.15 / 0.70 / 0.15 | 0.967875 |
+| lgbm + budget + lattice_refdist | 0.10 / 0.35 / 0.55 | **0.968084** |
+| budget + lattice_refdist | 0.40 / 0.60 | 0.968011 |
+| lgbm + lattice_refdist + lookup | 0.10 / 0.65 / 0.25 | 0.968294 |
+
+The 0.968294 row uses Lookup-Transformer **only as an already-trained blender**. It is not a reason to reimplement that architecture (solo 0.965339 < CatBoost). Preferred blend **without** Lookup: **0.968084**.
+
+## Full-data screens (this branch; not a 5-fold score)
+
+1. `configs/lgbm_nocat_exact_te_v1.yaml` with `--n-splits 3` — OOF 0.923636.
+2. `configs/catboost_exactcat_budget_v1.yaml` with `--n-splits 3` — OOF **0.967878** (cats dropped). **Not a 5-fold score.**
+
+## Kernel kick for this-branch YAML (cats dropped)
+
+`gh workflow run` returned **HTTP 403** (integration cannot `workflow_dispatch`).
+
+Local `kaggle kernels push` for this checkout's `configs/catboost_exactcat_budget_v1.yaml` (CPU, original cats **dropped**) was accepted:
+
+- https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1
+- Status after push: **RUNNING**
+- `submit_to_kaggle` was not used
+- Do not overwrite PR #11's `yitiluo/s6e8-catboost-exactcat-budget-v1` kernel
 
 ## Not worth more budget
 
@@ -137,86 +178,52 @@ Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submi
 - Fold-safe exact-value target encoding **inside** LightGBM (lookup hijacks early stopping; already in the deep tree).
 - Mean-blending nocat with OOF exact-value TE (≤ +0.00002).
 - `other_screen` / `component_sum` / `weekend − daily` / value-frequency / fractional parts as extra GBM columns (residual vs nocat ≈ 0).
-- Another LGBM+HistGB probability blend pass.
+- Another LGBM+HistGB probability blend pass (long-HistGB blend is +0.00028 vs blend_nocat; CatBoost dominates).
 - `extra_trees` LightGBM on nocat (80k −0.015).
 - Monotone constraints on usage/sleep (identity columns are not monotone).
-- Keeping original gender/stress/academic in CatBoost.
-- Decimal-lattice extras on top of CatBoost exact-cat (flat).
+- Keeping original gender/stress/academic in CatBoost as a **solo** model (80k origcats 0.952). PR #11 5-fold still kept them *alongside* exact cats; this-branch YAML drops them.
+- Decimal-lattice extras on top of CatBoost exact-cat (80k flat).
 - Hashing exact-value cats into ≤255 bins for HistGB (destroys identity; raw exact cats exceed max_bins).
 - sklearn MLP on nocat numerics (0.931 on 80k).
-- Lookup-Transformer (draft PR #11 failed its solo gate). Do not revive it; the optional-torch path is hashed-entity MLP.
+- Lookup-Transformer as a **solo** model (PR #11 5-fold 0.965339 < CatBoost 0.967681). Do not revive it; optional-torch path is hashed-entity MLP.
+- Target-free original-source refdist on CatBoost budget (80k **0.961669 vs 0.961641**). Code is landed; a dedicated 5-fold is optional confirmation only.
 
-## Configs ready for Kaggle 5-fold
+## Code-level paths landed this iteration
 
-80k ranking and a full-data 3-fold screen are recorded above. They are **not**
-official 5-fold scores. Run these on Kaggle Kernels next:
+| config | isolated variable | 80k / kernel note |
+| --- | --- | --- |
+| `catboost_exactcat_budget_refdist_v1` | target-free original CDF / robust-z / frequency / kNN | 80k **flat**; labels never appended |
+| `catboost_exactcat_budget_seed7` / `_seed2026` | seed only | mean-blend after 5-folds exist |
+| `catboost_exactcat_budget_gpu_v1` | `runtime.accelerator: gpu` | YAML only; LightGBM unchanged |
+| `catboost_exactcat_budget_gpu_depth6_v1` | depth 6 vs GPU v1 | YAML only |
+| `entity_mlp_hash_v1` | hashed-entity residual MLP | smoke skips without torch |
 
-1. `configs/catboost_exactcat_budget_v1.yaml` (primary)
-2. `configs/catboost_exactcat_v1.yaml` (ablation: drop budget)
-3. `configs/lgbm_freq_v1.yaml` (small 80k lift; cheap)
-4. `configs/histgb_nocat_long_v1.yaml` (addresses the 500-iter cap on full data)
-5. `configs/lgbm_nocat_seed7.yaml` + `lgbm_nocat_seed2026.yaml` then mean-blend with `lgbm_nocat`
-6. Grid-blend `lgbm_nocat` with the CatBoost 5-fold OOF (`scripts/blend_oof.py --method grid`)
+`scripts/prepare_kaggle_kernel.py` copies `features.reference.dataset_source` into kernel `dataset_sources`. `scripts/blend_oof.py --method mean` is the seed-average glue.
+
+## Remaining *runtime-only* work (this VM cannot finish)
+
+- Wait for https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1 (this-branch 5-fold, cats dropped) then grid-blend with `lgbm_nocat`.
+- Seed-averaged CatBoost 5-folds (`seed7`, `seed2026`) then `blend_oof.py --method mean`.
+- CatBoost GPU HPO **runs** (`gpu_v1`, `gpu_depth6_v1`).
+- Optional `lgbm_freq_v1` 5-fold (80k +0.001).
+- Optional-torch `entity_mlp_hash_v1` ranking when torch is installed (not Lookup-Transformer).
+- Pseudo-labelling (high leak risk) and calibration (cannot move ROC-AUC) stay rejected.
 
 ```bash
+# GHA path (403 for this cloud agent; run from a repo admin):
+gh workflow run kaggle-train.yml \
+  -f config=configs/catboost_exactcat_budget_v1.yaml \
+  -f accelerator=cpu \
+  -f submit_to_kaggle=false \
+  -f kernel_slug=s6e8-cb-exactcat-budget-dropcats-v1
+
+# After the drop-cats kernel completes:
 python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1 --method grid --name blend_lgbm_cb_budget
 python scripts/blend_oof.py --experiments catboost_exactcat_budget_v1 catboost_exactcat_budget_seed7 catboost_exactcat_budget_seed2026 --method mean --name catboost_exactcat_budget_seedavg
 ```
 
-Kick the primary CatBoost 5-fold (do **not** submit):
-
-```text
-GitHub → Actions → Kaggle Train → Run workflow
-  config=configs/catboost_exactcat_budget_v1.yaml
-  accelerator=cpu
-  submit_to_kaggle=false
-```
-
-```bash
-gh workflow run kaggle-train.yml \
-  -f config=configs/catboost_exactcat_budget_v1.yaml \
-  -f accelerator=cpu \
-  -f submit_to_kaggle=false
-```
-
-Local equivalent (bundles this checkout; still trains on Kaggle, not this VM):
-
-```bash
-python3 scripts/setup_kaggle_auth.py
-python3 scripts/prepare_kaggle_kernel.py \
-  --config configs/catboost_exactcat_budget_v1.yaml \
-  --accelerator cpu \
-  --username "$KAGGLE_USERNAME" \
-  --slug s6e8-catboost-exactcat-budget-v1
-kaggle kernels push -p .kernel-staging
-```
-
-The `catboost_exactcat_budget_refdist_v1` kernel also needs dataset
-`jayjoshi37/smartphone-usage-and-addiction-prediction` attached (done automatically
-from `features.reference.dataset_source`). Download locally with:
+Original source features (do **not** append labelled rows):
 
 ```bash
 python3 -m kaggle datasets download -p data/raw --unzip jayjoshi37/smartphone-usage-and-addiction-prediction
 ```
-
-### Code-level paths landed this iteration (not 5-fold scores)
-
-| config | isolated variable |
-| --- | --- |
-| `catboost_exactcat_budget_refdist_v1` | target-free original-source CDF / robust-z / frequency / kNN vs `catboost_exactcat_budget_v1` |
-| `catboost_exactcat_budget_seed7` / `_seed2026` | seed only; mean-blend via `scripts/blend_oof.py --method mean` |
-| `catboost_exactcat_budget_gpu_v1` | `runtime.accelerator: gpu` (CatBoost `task_type=GPU`; LightGBM unchanged) |
-| `catboost_exactcat_budget_gpu_depth6_v1` | depth 6 vs GPU v1 |
-| `entity_mlp_hash_v1` | optional-torch hashed-entity residual MLP (not Lookup-Transformer) |
-
-### Still unexplored after this iteration (runtime-only unless noted)
-
-- **Kaggle 5-fold** `catboost_exactcat_budget_v1` (code ready; this VM must not run it).
-- 5-fold ablations: `catboost_exactcat_v1`, `lgbm_freq_v1`, `histgb_nocat_long_v1`, LGBM seedavg, then grid-blend LGBM+CB.
-- 5-fold `catboost_exactcat_budget_refdist_v1` after the original dataset is attached.
-- CatBoost GPU HPO **runs** (YAMLs ready: `gpu_v1`, `gpu_depth6_v1`).
-- Seed-averaged CatBoost **after** the three 5-fold OOF dumps exist.
-- Optional-torch `entity_mlp_hash_v1` ranking (CI skips without torch; do not revive Lookup-Transformer).
-- Pseudo-labelling (high leak risk on playground identity).
-- Calibration (monotone; cannot move single-model ROC-AUC).
-- Mixing original labelled rows into train (already rejected).

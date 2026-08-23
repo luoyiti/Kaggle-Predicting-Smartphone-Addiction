@@ -124,9 +124,9 @@ python scripts/train.py --config configs/lgbm_nocat.yaml --max-train-rows 80000 
 
 That renames the experiment to `lgbm_nocat_diag80000` and skips writing `experiments/*.json`. Record the ranking in `experiments/LOG.md`. Full 5-fold jobs belong on Kaggle Kernels.
 
-Current best **official 5-fold** single-model YAML: `configs/lgbm_nocat.yaml` (OOF 0.963771). Blend partner: `configs/histgb_nocat.yaml` (blend 0.963806).
+Current best **official 5-fold** single-model YAML on `main`: `configs/lgbm_nocat.yaml` (OOF 0.963771). Blend partner: `configs/histgb_nocat.yaml` (blend 0.963806).
 
-Next Kernel candidate (full-data **3-fold diagnostic** 0.967878, not a 5-fold score): `configs/catboost_exactcat_budget_v1.yaml`. Ablation without budget: `configs/catboost_exactcat_v1.yaml`. See `experiments/LOG.md`.
+This-branch CatBoost exact-cat+budget 3-fold diagnostic is 0.967878 (not a 5-fold score). A CPU 5-fold of `configs/catboost_exactcat_budget_v1.yaml` (original cats dropped) is running at https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1. PR #11 GPU kernels that **kept** original cats are a different YAML; see `experiments/LOG.md`.
 
 ```bash
 python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid
@@ -140,7 +140,7 @@ python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1
 python scripts/blend_oof.py --experiments catboost_exactcat_budget_v1 catboost_exactcat_budget_seed7 catboost_exactcat_budget_seed2026 --method mean --name catboost_exactcat_budget_seedavg
 ```
 
-Ready-but-unrun Kernel YAMLs (not 5-fold scores): `configs/catboost_exactcat_budget_v1.yaml` (primary CPU), seed variants `*_seed7` / `*_seed2026`, GPU `configs/catboost_exactcat_budget_gpu_v1.yaml`, HPO `configs/catboost_exactcat_budget_gpu_depth6_v1.yaml`, original-distribution features `configs/catboost_exactcat_budget_refdist_v1.yaml` (attach Kaggle dataset `jayjoshi37/smartphone-usage-and-addiction-prediction`; do **not** append those labelled rows to train). Optional torch NN: `configs/entity_mlp_hash_v1.yaml` (hash embeddings, not Lookup-Transformer).
+Ready Kernel YAMLs: `configs/catboost_exactcat_budget_v1.yaml` (primary CPU; drop-cats 5-fold kernel already pushed), seed variants `*_seed7` / `*_seed2026`, GPU `configs/catboost_exactcat_budget_gpu_v1.yaml`, HPO `configs/catboost_exactcat_budget_gpu_depth6_v1.yaml`. Original-distribution features `configs/catboost_exactcat_budget_refdist_v1.yaml` (80k **flat** vs budget; attach Kaggle dataset `jayjoshi37/smartphone-usage-and-addiction-prediction`; do **not** append those labelled rows to train). Optional torch NN: `configs/entity_mlp_hash_v1.yaml` (hash embeddings, not Lookup-Transformer).
 
 Kick the primary 5-fold via GitHub → **Actions → Kaggle Train → Run workflow**:
 
