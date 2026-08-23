@@ -43,6 +43,12 @@ The three categoricals are dropped. No coverage features.
 | lgbm_nocat_seedavg | Mean of seeds 42 / 7 / 2026 | 1/3 each | 0.964287 | — | — | +0.000516 vs nocat. Grid 0.35/0.40/0.25 = 0.964290 (noise). Pearson ~0.995. | Prefer mean |
 | blend_seedavg_cb_gpu_depth6 | 3-seed avg + depth-6 GPU CB | Grid 0.15 / 0.85 | 0.968059 | — | — | +0.000001 vs seedavg7 mix. Pearson 0.9808. | Optional |
 | blend_seedavg_freq_histlong_cb_gpu_depth6 | 3-seed avg + freq + histlong + depth-6 GPU CB | Grid 0.10/0.00/0.05/0.85 | **0.968060** | — | — | Best this-branch **cats-dropped** 5-fold so far. | Re-blend after CPU drop-cats |
+| blend_gpu_depth6_pr11_refdist | Mix drop-cats GPU depth6 with PR #11 orig-cats lattice+refdist | Grid 0.50 / 0.50; Pearson 0.9969 | 0.968118 | — | — | **+0.000058 vs cats-dropped best 0.968060.** Mixed protocol. | Prefer the seedavg 3-way |
+| blend_gpu_depth6_pr11_budget | Mix drop-cats GPU depth6 with PR #11 orig-cats budget | Grid 0.75 / 0.25; Pearson 0.9979 | 0.967971 | — | — | Below depth6+refdist. | Stop averaging the two budget dumps |
+| blend_seedavg_gpu_depth6_pr11_refdist | 3-seed LGBM + drop-cats GPU depth6 + PR #11 lattice+refdist | Grid 0.10 / 0.50 / 0.40 | **0.968191** | — | — | Best **without** Lookup. +0.000131 vs cats-dropped 0.968060; +0.000107 vs PR #11 lgbm+budget+refdist 0.968084. | Re-blend after CPU drop-cats |
+| blend_seedavg_gpu_depth6_pr11_budget_refdist | Same + PR #11 orig-cats budget | Grid 0.10/0.45/0.05/0.40 | 0.968193 | — | — | +0.000002 vs the 3-way (noise). Budget weight 0.05. | Prefer the 3-way |
+| stack_seedavg_gpu_depth6_pr11_budget_refdist | Logistic stack of those four OOF columns | Inner 5-fold logistic | 0.968049 | — | — | **Below grid.** Same lesson as the tree-trio stack. | Prefer grid |
+| blend_seedavg_gpu_depth6_pr11_refdist_lookup | 3-way above + already-trained Lookup OOF | Grid 0.10/0.35/0.35/0.20 | **0.968422** | — | — | +0.000128 vs PR #11 lgbm+refdist+lookup 0.968294. Lookup is a blender only; do not revive the architecture. | Optional submit candidate |
 
 **CPU drop-cats 5-fold is NOT in LOG.md.** Kernel [s6e8-cb-exactcat-budget-dropcats-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1) (`configs/catboost_exactcat_budget_v1.yaml`) was still **RUNNING** at the 2026-08-23 19:43 UTC harvest. Do not treat either GPU row as that CPU YAML.
 
@@ -110,7 +116,7 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 | lgbm_nocat_goss_v1_diag80000 | GOSS vs GBDT+bagging | `boosting_type: goss` and `bagging_freq: 0` (LightGBM forbids bagging with GOSS) | 0.951202 | 0.000442 | 19s | **−0.00312 vs lgbm_nocat 80k 0.954317.** Worse. Not a competition score. | Do not 5-fold |
 | catboost_exactcat_budget_border128_v1_diag80000 | Coarser numeric bins | `border_count` 128 vs CatBoost default 254 | 0.961555 | 0.000157 | 125s | **−0.000086 vs budget 0.961641.** Slightly worse / flat. n_cat=9, CPU. Not a competition score. | Do not 5-fold |
 
-**Promote to Kaggle 5-fold (in this order):** harvest CPU `catboost_exactcat_budget_v1` drop-cats (still **RUNNING** as of 2026-08-23 19:43 UTC), then grid-blend with `lgbm_nocat_seedavg` / `lgbm_freq_v1` / histlong / GPU depth6. LGBM 3-seed mean **is recorded** (`lgbm_nocat_seedavg` 0.964287).
+**Promote to Kaggle 5-fold (in this order):** harvest CPU `catboost_exactcat_budget_v1` drop-cats via `scripts/install_kernel_oof.py` (still **RUNNING** as of 2026-08-23 19:43 UTC; installer refuses GPU/`n_cat=12` dumps), then grid-blend with `lgbm_nocat_seedavg` / GPU depth6 / PR #11 lattice+refdist. Cross-family mix **is recorded** (`blend_seedavg_gpu_depth6_pr11_refdist` 0.968191; with Lookup blender 0.968422). LGBM 3-seed mean **is recorded** (`lgbm_nocat_seedavg` 0.964287).
 
 **Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO, **target-free original-source refdist** (flat vs budget), **explicit notif\\|app joint exact token** (flat vs budget), **identity-only exact cats** (notif+app only), **hashed-entity MLP**, **Plain vs Ordered CatBoost** (identical 80k), **Bernoulli bootstrap** (−0.00036 vs budget), **hard-band train_only specialist** (solo 0.471; worse than frozen nocat even inside the band), **LightGBM DART** (−0.00143 vs nocat; no early stopping), **CatBoost l2_leaf_reg 12 vs 6** (flat +0.00012), **LightGBM GOSS** (−0.00312 vs nocat), **CatBoost border_count 128 vs 254** (−0.000086 vs budget).
 
@@ -149,6 +155,7 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 - Do not average in failed ablations (`usage_core`, `lgbm_nocat_exact_te_v1`).
 - Grid-blending `lgbm_nocat` OOF with fold-safe notif/app TE is ≤ **+0.00002**. Logistic stack of nocat+TE **hurts** (−0.0007).
 - PR #11 CatBoost exact-cat+budget 5-fold OOF (GPU, **original cats kept**) Pearson vs `lgbm_nocat` is 0.979. Grid 0.15 LGBM + 0.85 CB budget = **0.967843**. Adding PR #11 lattice+refdist reaches **0.968084** without Lookup-Transformer.
+- This-branch GPU depth6 (n_cat=9) vs PR #11 lattice+refdist (n_cat=12) Pearson **0.9969**. Grid 0.50/0.50 = **0.968118**. Adding `lgbm_nocat_seedavg` (0.10/0.50/0.40) = **0.968191**. Adding PR #11 budget is +0.000002. `stack_logistic` of those four columns = **0.968049** (below grid). Lookup as an already-trained blender reaches **0.968422**.
 
 **Where is `lgbm_nocat` still wrong?**
 
@@ -165,7 +172,7 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 2. `configs/histgb_nocat.yaml` (CPU) — OOF 0.962140.
 3. `python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid --name blend_nocat` — OOF **0.963806**.
 
-This is still the **main-tracked official SOTA** for YAMLs that landed on `main`. This branch additionally landed `lgbm_freq_v1` **0.963801**, `lgbm_nocat_seed7` **0.963837**, `lgbm_nocat_seed2026` **0.963691**, `lgbm_nocat_seedavg` **0.964287**, `blend_nocat_freq_histlong` **0.964367**, GPU drop-cats CatBoost **0.967732**, GPU depth-6 **0.967929**, and `blend_seedavg_freq_histlong_cb_gpu_depth6` **0.968060**. **CPU drop-cats 5-fold is NOT in LOG.md.** Do **not** `kaggle competitions submit` unless explicitly asked.
+This is still the **main-tracked official SOTA** for YAMLs that landed on `main`. This branch additionally landed `lgbm_freq_v1` **0.963801**, `lgbm_nocat_seed7` **0.963837**, `lgbm_nocat_seed2026` **0.963691**, `lgbm_nocat_seedavg` **0.964287**, `blend_nocat_freq_histlong` **0.964367**, GPU drop-cats CatBoost **0.967732**, GPU depth-6 **0.967929**, and `blend_seedavg_freq_histlong_cb_gpu_depth6` **0.968060**. Mixing that depth-6 OOF with PR #11 lattice+refdist + seedavg is **0.968191** (no Lookup) / **0.968422** (Lookup as blender only). **CPU drop-cats 5-fold is NOT in LOG.md.** Do **not** `kaggle competitions submit` unless explicitly asked.
 
 ## Full 5-fold from existing Kaggle kernels (PR #11 / earlier; not this-branch YAML)
 
@@ -192,7 +199,7 @@ Grid blends of those downloaded OOF dumps (same train ids; not submitted):
 | budget + lattice_refdist | 0.40 / 0.60 | 0.968011 |
 | lgbm + lattice_refdist + lookup | 0.10 / 0.65 / 0.25 | 0.968294 |
 
-The 0.968294 row uses Lookup-Transformer **only as an already-trained blender**. It is not a reason to reimplement that architecture (solo 0.965339 < CatBoost). Preferred blend **without** Lookup: **0.968084**.
+The 0.968294 row uses Lookup-Transformer **only as an already-trained blender**. It is not a reason to reimplement that architecture (solo 0.965339 < CatBoost). Preferred PR #11-only blend **without** Lookup: **0.968084**. Mixing those dumps with this-branch GPU depth6 + LGBM seedavg is better: **0.968191** without Lookup, **0.968422** with the same Lookup blender.
 
 ## Full-data screens (this branch; not a 5-fold score)
 
@@ -246,6 +253,7 @@ Joint-pair / refdist / identity / Plain / Bernoulli / entity_mlp YAMLs were **no
 - CatBoost `boosting_type: Plain` vs default Ordered (80k **identical** 0.961641).
 - CatBoost `bootstrap_type: Bernoulli` vs default Bayesian (80k **0.961279 vs 0.961641**).
 - Restacking the nocat+freq+histlong trio (logistic / ridge / rank / logit). All ≤ the existing grid **0.964367**.
+- Logistic-stacking seedavg + GPU depth6 + PR #11 budget + lattice+refdist (**0.968049** vs grid **0.968193**).
 - Training a LightGBM specialist **only** on frozen `lgbm_nocat` OOF p∈(0.3, 0.7) (80k **0.470972**; band 0.519 vs frozen 0.639).
 - LightGBM `boosting_type: dart` on nocat (80k **0.952890 vs 0.954317**). No early stopping in dart mode.
 - CatBoost `l2_leaf_reg` 12 vs budget 6 (80k **0.961762 vs 0.961641**). Flat.
@@ -272,16 +280,16 @@ Joint-pair / refdist / identity / Plain / Bernoulli / entity_mlp YAMLs were **no
 | `lgbm_nocat_seed7` / `_seed2026` | seed only | seed7 **0.963837**; seed2026 **0.963691**; 3-seed mean **0.964287** |
 | `catboost_exactcat_budget_border128_v1` | `border_count` 128 vs default 254 | 80k **0.961555** (−0.000086 vs budget); stop |
 
-`scripts/prepare_kaggle_kernel.py` copies `features.reference.dataset_source` into kernel `dataset_sources`. `scripts/blend_oof.py --method mean` is the seed-average glue. `scripts/analyze_error_band.py` writes `experiments/error_band_<name>.json` from saved OOF (no training). `features.hard_band` trains only on / reweights rows whose frozen base OOF p is in `(lo, hi)`.
+`scripts/prepare_kaggle_kernel.py` copies `features.reference.dataset_source` into kernel `dataset_sources`. `scripts/blend_oof.py --method mean` is the seed-average glue; it now fails loud on pred-shape / npy / diagnostic-mix mismatches. `scripts/install_kernel_oof.py` is the only safe way to replace `oof/catboost_exactcat_budget_v1/` (requires accelerator=cpu and n_cat=9; preserves the PR #11 GPU orig-cats dump as `catboost_exactcat_budget_pr11_origcats`). `scripts/analyze_error_band.py` writes `experiments/error_band_<name>.json` from saved OOF (no training). `features.hard_band` trains only on / reweights rows whose frozen base OOF p is in `(lo, hi)`.
 
 ## Remaining *runtime-only* work (this VM cannot finish)
 
 **Code-level 80k levers are exhausted.** Every isolated YAML in the table above has a stop verdict, a recorded 5-fold, or is already a running seed kernel. There is no unrejected new 80k knob left (do not invent another `border_count` / `l2_leaf_reg` / `rsm` / Lossguide / CPU-depth-6 / lr-only LGBM just to keep iterating). `lgbm_nocat_lr02` already has 80k (+0.0006); freq showed 80k lift does not scale — do not 5-fold it. Refdist 5-fold is optional confirmation of an already-flat 80k; not promoted. Remaining work is **harvest + blend of kernels already in flight**.
 
-- **Blocker:** CPU drop-cats kernel https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1 is still **RUNNING**. **CPU drop-cats 5-fold is NOT in LOG.md.** When COMPLETE, download into `oof/catboost_exactcat_budget_v1/` (replace the PR #11 orig-cats dump currently in that folder), then:
-  `python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1 --method grid --name blend_lgbm_cb_budget`
-  plus freq / histlong / seedavg partners. Do **not** confuse with GPU `oof/catboost_exactcat_budget_gpu_v1/`.
-- GPU drop-cats 5-fold **IS** recorded: `catboost_exactcat_budget_gpu_v1` **0.967732**; GPU depth-6 **0.967929**; best blend **0.968060** (`blend_seedavg_freq_histlong_cb_gpu_depth6`). GPU ≠ CPU Ordered CTR.
+- **Blocker:** CPU drop-cats kernel https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1 is still **RUNNING**. **CPU drop-cats 5-fold is NOT in LOG.md.** When COMPLETE, install with `scripts/install_kernel_oof.py` (refuses GPU/`n_cat=12`; preserves PR #11 as `oof/catboost_exactcat_budget_pr11_origcats/`), then:
+  `python scripts/blend_oof.py --experiments lgbm_nocat_seedavg catboost_exactcat_budget_gpu_depth6_v1 catboost_exactcat_budget_v1 --method grid --name blend_seedavg_gpu_depth6_cb_cpu`
+  plus PR #11 lattice+refdist. Do **not** confuse with GPU `oof/catboost_exactcat_budget_gpu_v1/`. Do **not** `cp` a kernel dump over `oof/catboost_exactcat_budget_v1/` by hand.
+- GPU drop-cats 5-fold **IS** recorded: `catboost_exactcat_budget_gpu_v1` **0.967732**; GPU depth-6 **0.967929**; best cats-dropped blend **0.968060** (`blend_seedavg_freq_histlong_cb_gpu_depth6`). Best mixed drop-cats+PR11 blend **0.968191** / Lookup blender **0.968422**. GPU ≠ CPU Ordered CTR.
 - Seed-averaged CatBoost 5-folds (`seed7`, `seed2026` kernels **RUNNING**) then `blend_oof.py --method mean`.
 - LGBM 3-seed mean **IS** recorded: `lgbm_nocat_seedavg` **0.964287** (seeds 42/7/2026).
 - This-branch `catboost_exactcat_v1` drop-cats ablation kernel **RUNNING**.
@@ -298,7 +306,8 @@ gh workflow run kaggle-train.yml \
   -f kernel_slug=s6e8-cb-exactcat-budget-dropcats-v1
 
 # After the drop-cats kernel completes:
-python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1 --method grid --name blend_lgbm_cb_budget
+python scripts/install_kernel_oof.py --src artifacts/kaggle-output --experiment catboost_exactcat_budget_v1
+python scripts/blend_oof.py --experiments lgbm_nocat_seedavg catboost_exactcat_budget_gpu_depth6_v1 catboost_exactcat_budget_v1 --method grid --name blend_seedavg_gpu_depth6_cb_cpu
 python scripts/blend_oof.py --experiments catboost_exactcat_budget_v1 catboost_exactcat_budget_seed7 catboost_exactcat_budget_seed2026 --method mean --name catboost_exactcat_budget_seedavg
 ```
 

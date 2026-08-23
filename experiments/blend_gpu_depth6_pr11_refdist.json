@@ -1,0 +1,21 @@
+{
+  "experiment": "blend_gpu_depth6_pr11_refdist",
+  "cv_auc": 0.9681183892472522,
+  "method": "grid",
+  "components": [
+    "catboost_exactcat_budget_gpu_depth6_v1",
+    "catboost_exactcat_budget_lattice_refdist_v1"
+  ],
+  "weights": {
+    "catboost_exactcat_budget_gpu_depth6_v1": 0.5,
+    "catboost_exactcat_budget_lattice_refdist_v1": 0.5
+  },
+  "component_auc": {
+    "catboost_exactcat_budget_gpu_depth6_v1": 0.9679293409270637,
+    "catboost_exactcat_budget_lattice_refdist_v1": 0.9678902672436482
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "grid blend of catboost_exactcat_budget_gpu_depth6_v1, catboost_exactcat_budget_lattice_refdist_v1"
+}

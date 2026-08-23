@@ -1,0 +1,27 @@
+{
+  "experiment": "blend_seedavg_gpu_depth6_pr11_refdist_lookup",
+  "cv_auc": 0.9684219653076817,
+  "method": "grid",
+  "components": [
+    "lgbm_nocat_seedavg",
+    "catboost_exactcat_budget_gpu_depth6_v1",
+    "catboost_exactcat_budget_lattice_refdist_v1",
+    "lookup_transformer_v1"
+  ],
+  "weights": {
+    "lgbm_nocat_seedavg": 0.1,
+    "catboost_exactcat_budget_gpu_depth6_v1": 0.35,
+    "catboost_exactcat_budget_lattice_refdist_v1": 0.35,
+    "lookup_transformer_v1": 0.2
+  },
+  "component_auc": {
+    "lgbm_nocat_seedavg": 0.9642867064770508,
+    "catboost_exactcat_budget_gpu_depth6_v1": 0.9679293409270637,
+    "catboost_exactcat_budget_lattice_refdist_v1": 0.9678902672436482,
+    "lookup_transformer_v1": 0.96533865968609
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "grid blend of lgbm_nocat_seedavg, catboost_exactcat_budget_gpu_depth6_v1, catboost_exactcat_budget_lattice_refdist_v1, lookup_transformer_v1"
+}
