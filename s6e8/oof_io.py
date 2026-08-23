@@ -19,6 +19,26 @@ def resolve_oof_root(oof_dir: str | Path = "oof") -> Path:
     return path
 
 
+def join_oof_with_train(
+    train_df: pd.DataFrame,
+    oof_payload: dict[str, Any],
+    *,
+    id_col: str = "id",
+    target: str = "addicted_label",
+) -> pd.DataFrame:
+    """Align train features with OOF labels/preds without colliding on target name."""
+    feat = train_df.drop(columns=[target], errors="ignore")
+    oof_df = oof_payload["oof"][[id_col, "pred"]].copy()
+    oof_df[target] = oof_payload["y"]
+    merged = feat.merge(oof_df, on=id_col, how="inner")
+    if len(merged) != len(oof_payload["oof"]):
+        raise ValueError(
+            f"id mismatch: train features {len(feat)} vs OOF {len(oof_payload['oof'])} "
+            f"merged {len(merged)}"
+        )
+    return merged
+
+
 def load_experiment_oof(exp: str, oof_root: str | Path = "oof") -> dict[str, Any]:
     folder = resolve_oof_root(oof_root) / exp
     oof_path = folder / "oof.parquet"

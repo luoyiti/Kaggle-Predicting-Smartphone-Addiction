@@ -32,6 +32,32 @@ unseen-value rates are fake. These rows use the **full train**.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | lgbm_nocat_exact_te_v1_diag | Exact numeric values carry playground identity that raw splits miss | `lgbm_nocat` + fold-safe LOO TE on notif/app/sleep/age/gaming/work; 3-fold full data | 0.923636 | 0.000601 | 17s | **−0.040 vs lgbm_nocat.** Unseen=0 (not leakage). Best iter 20–31. `age_exact_te` stole 17% gain; predictions compressed. Identity is real univariately (notif TE 0.76 vs raw 0.49) but already inside deep LGBM. **Stop TE-in-GBM. No 5-fold.** | Do not inject lookup TE into LightGBM. Residual of nocat is not in generator arithmetic either |
 
+## Diagnostic ranking, this PR (real 80k rows × 3-fold, seed 42 — not a 5-fold score)
+
+Run on official Kaggle `train.csv` (691,369 rows subsampled to 80k). Control `lgbm_nocat_diag80000` **reproduced 0.954317**, matching the previous log exactly.
+
+| experiment | hypothesis | change | CV AUC | vs nocat | conclusion |
+| --- | --- | --- | --- | --- | --- |
+| lgbm_nocat_diag80000 | Control | 9 raw numerics | **0.954317** | 0 | Reproduced |
+| lgbm_nocat_missflags_diag80000 | Missingness is signal | per-column NA flags | 0.954461 | +0.000144 | Within fold std (~0.0003). Not a 5-fold candidate |
+| lgbm_nocat_leisure_work_diag80000 | Leisure vs work ratio | `add_leisure_work_ratio` | 0.954284 | −0.000033 | Dead-end |
+| lgbm_nocat_interactions_diag80000 | Explicit products | pairwise usage products | 0.952966 | **−0.00135** | Harmful. Stop |
+| lgbm_nocat_bins_diag80000 | Quantile stumps | 5-qbins of daily/sleep/weekend | 0.954196 | −0.00012 | Dead-end |
+| lgbm_ordinal_cats_diag80000 | Ordered cat maps | ordinal + drop strings | 0.954108 | −0.00021 | Dead-end vs nocat |
+| lgbm_cat_missing_level_diag80000 | `__NA__` cat level | keep cats, fill missing | 0.954091 | −0.00023 | Dead-end vs nocat |
+| logreg_nocat_diag80000 | Linear + miss flags | logreg nocat | 0.913096 | −0.041 | Still too weak (raw logreg was 0.911) |
+| extratrees_nocat_diag80000 | Diversity vs GBM | ExtraTrees, median impute | 0.925209 | −0.029 | Grid blend weight vs LGBM = **1.0 / 0.0** |
+| lgbm_nocat_diag80000_cal_isotonic | Isotonic on OOF | inner-CV isotonic | 0.954025 | −0.00029 | ECE 0.0042→0.0035; AUC drop. Skip |
+| lgbm_nocat_diag80000_cal_platt | Platt on OOF | inner-CV logistic | 0.954272 | −0.000045 | ECE **worsens** 0.0042→0.0348. Stop |
+| stack_nocat_logreg_diag80000 | Logistic stack | LGBM+logreg OOF | 0.953912 | −0.00041 | Hurts |
+| blend_nocat_logreg_diag80000 | AUC-weighted | LGBM+logreg | 0.945653 | −0.0087 | Hurts (logreg too weak) |
+
+Real-data contract audit (full 691,369 / 296,302): schema OK, id overlap 0, id-vs-label AUC 0.5007, `daily < social+gaming+work` rows **0**, numeric PSI ~1e-5, positive rate **0.7094**. Missing-rate train/test gaps of 2–3% on a few columns (warn, not error).
+
+Error analysis on `lgbm_nocat_diag80000`: hard band n=12,219, AUC 0.637, max residual-column AUC 0.516 → **stop_or_ensemble** (same story as full-data ~93k / 0.641).
+
+CatBoost and XGBoost nocat YAML are implemented but **not scored here** (`xgboost`/`catboost` not installed). Kernel-only.
+
 ## Diagnostic ranking (80k rows, 3-fold, seed 42 — not a leaderboard number)
 
 | experiment | hypothesis | change | CV AUC | fold std | runtime | conclusion | next step |

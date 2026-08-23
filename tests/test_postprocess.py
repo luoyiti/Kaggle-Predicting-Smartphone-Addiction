@@ -39,7 +39,25 @@ def test_oof_io_roundtrip(tmp_path):
     assert loaded["metrics"]["experiment"] == "exp_a"
 
 
-def test_missing_oof_fails_closed(tmp_path):
+def test_join_oof_with_train_does_not_collide_on_target(tmp_path):
+    from s6e8.oof_io import join_oof_with_train, load_experiment_oof
+
+    y = np.array([0, 1, 0, 1])
+    pred = np.array([0.2, 0.8, 0.3, 0.7])
+    test = np.array([0.4, 0.6])
+    _bundle(tmp_path, "exp_join", y, pred, test)
+    loaded = load_experiment_oof("exp_join", tmp_path / "oof")
+    train = pd.DataFrame(
+        {
+            "id": np.arange(4),
+            "daily_screen_time_hours": [1.0, 2.0, 3.0, 4.0],
+            "addicted_label": y,
+        }
+    )
+    merged = join_oof_with_train(train, loaded)
+    assert list(merged["addicted_label"]) == [0, 1, 0, 1]
+    assert "pred" in merged.columns
+    assert len(merged) == 4
     with pytest.raises(FileNotFoundError):
         load_experiment_oof("does_not_exist", tmp_path / "oof")
 

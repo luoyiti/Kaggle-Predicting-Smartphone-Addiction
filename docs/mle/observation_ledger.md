@@ -26,27 +26,21 @@ Next iteration: Close those surface gaps without mutating old configs
 
 ```text
 Iteration: 1
-Change: Contracts, extra feature families, ExtraTrees, CatBoost/XGB nocat YAML,
-  slice metrics, isotonic/platt calibration, rank/AUC-weighted/logistic stack,
-  promotion gates (fail closed), data-contract audit, error analysis → next YAML
-Why this mattered: Modeling paths were notes or partial; Kernel cannot run
-  a path that has no trainer/config
-Metric movement: No new full-data 5-fold Kernel in this iteration.
-  Synthetic smoke only proves the pipeline runs.
-Slice movement: Slice helper now writes per-cohort AUC whenever train columns exist
-False positives / negatives: Error-analysis clusters hard-band / missingness /
-  cat slices and emits a falsifiable next experiment (or “stop”)
-Unexpected errors: (filled after smoke/audit)
-Decision: Keep lgbm_nocat as the promotion baseline. New models are candidates
-  only after Kernel OOF and scripts/promote.py pass
-Tradeoff accepted: ExtraTrees needs median impute (no native NaN). CatBoost
-  stays an optional extra dependency, not in default requirements.txt
-Lesson captured: Exhaustion means the *surface* is implemented and dead-ends
-  are documented; Kernel scores remain the only competition evidence
-Regression added: Unit tests for transforms, metrics, ensemble, gates, audit
-Debt created: CatBoost/XGB/ExtraTrees full 5-fold still Kernel-only
-Next iteration: Kernel jobs for catboost_nocat / xgb_nocat if smoke is green;
-  do not re-open TE-in-GBM or ratio blocks
+Change: Contracts + remaining YAML surfaces; 80k×3 real-data ranking of new flags
+Why this mattered: Close high-value gaps in code/config and falsify them cheaply
+Metric movement (NOT 5-fold): lgbm_nocat_diag80000 reproduced 0.954317.
+  missflags +0.000144 (noise). interactions −0.00135 (stop).
+  ExtraTrees 0.925, grid weight vs LGBM = 1.0/0. Full Kernel 5-fold unchanged.
+Slice movement: Real 80k hard band n=12219 AUC 0.637; gender slices all ~0.954
+False positives / negatives: Residual column AUC max 0.516 in the hard band
+Unexpected errors: Platt calibration raised ECE 0.0042 → 0.0348
+Decision: Keep promoting lgbm_nocat / blend_nocat. Do not 5-fold missflags,
+  interactions, bins, ordinal, NA-level, ExtraTrees, or linear stacks.
+Tradeoff accepted: CatBoost/XGB remain optional extras (not installed here)
+Lesson captured: LGBM probabilities are already well calibrated (ECE 0.0042)
+Regression added: join_oof_with_train (target-name collision); promotion tests
+Debt created: catboost_nocat / xgb_nocat still need a Kernel if we want a third GBDT
+Next iteration: Optional Kernel CatBoost/XGB nocat only. No new arithmetic features.
 ```
 
 ## How to append

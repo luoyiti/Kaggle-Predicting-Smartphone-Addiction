@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 
 from s6e8.data import load_config, load_train
 from s6e8.error_analysis import analyze_oof_errors, render_next_experiment_yaml
-from s6e8.oof_io import load_experiment_oof
+from s6e8.oof_io import join_oof_with_train, load_experiment_oof
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,8 +36,10 @@ def main() -> None:
     config = load_config(args.config)
     train_df = load_train(config)
     oof = load_experiment_oof(args.experiment, args.oof_dir)
-    merged = train_df.merge(oof["oof"], on=config["competition"]["id_col"], how="inner")
-    y = merged[config["competition"]["target"]].to_numpy()
+    id_col = config["competition"]["id_col"]
+    target = config["competition"]["target"]
+    merged = join_oof_with_train(train_df, oof, id_col=id_col, target=target)
+    y = merged[target].to_numpy()
     pred = merged["pred"].to_numpy()
     analysis = analyze_oof_errors(merged, y, pred, experiment=args.experiment)
     suggestion = analysis["suggestion"]

@@ -164,7 +164,7 @@ Rollback: submissions/lgbm_nocat.csv or blend_nocat.csv. Never retrain to roll b
       <tr><td>xgb_raw</td><td>Third GBDT</td><td>XGBoost hist, raw</td><td>80k 0.952 (−0.002)</td><td>Retry as xgb_nocat on Kernel</td></tr>
       <tr><td>logreg_raw</td><td>Nearly linear</td><td>LogReg + impute/OHE</td><td>80k 0.911</td><td>Too weak to blend</td></tr>
       <tr><td>lgbm_nocat_exact_te_v1</td><td>Exact-value identity</td><td>Fold-safe TE in LGBM</td><td>Full-data 3-fold 0.9236 (−0.040)</td><td>Dead-end inside GBM</td></tr>
-      <tr><td>New YAML (this PR)</td><td>See each file’s hypothesis</td><td>One primary variable each</td><td>Surface implemented; no new Kernel 5-fold</td><td>Run on Kernel; promote.py vs lgbm_nocat</td></tr>
+      <tr><td>New YAML (this PR)</td><td>See 80k table in LOG.md</td><td>One primary variable each</td><td>Real 80k: missflags noise; interactions hurt; ET unused in blend</td><td>Do not 5-fold. Optional Kernel CB/XGB only</td></tr>
     </tbody>
   </table>
   <p class="muted">Full tables: <code>experiments/LOG.md</code>, <code>docs/mle/observation_ledger.md</code>.</p>
@@ -175,18 +175,20 @@ Rollback: submissions/lgbm_nocat.csv or blend_nocat.csv. Never retrain to roll b
   <h3>Shipped as code + YAML (this branch)</h3>
   <ul>
     <li>MLE artifacts under <code>docs/mle/</code> (compact, contracts, decision brain, ledger, checklist, coverage).</li>
-    <li>Feature flags: missing indicators (already existed), leisure/work ratio, pairwise interactions, quantile bins, ordinal cats, missing-as-category level.</li>
+    <li>Feature flags: missing indicators, leisure/work ratio, pairwise interactions, quantile bins, ordinal cats, missing-as-category level.</li>
     <li>Backends: ExtraTrees (new); CatBoost/XGBoost trainers already existed — now have <code>*_nocat</code> YAML.</li>
     <li>Eval: slice AUC + ECE/Brier in <code>metrics.json</code>; <code>scripts/eval_slices.py</code>, <code>error_analysis.py</code>, <code>audit_data.py</code>.</li>
-    <li>Post-hoc: rank / logit / mean / grid / <strong>AUC-weighted</strong> blend; logistic stack; isotonic/Platt calibration; fail-closed <code>scripts/promote.py</code>.</li>
+    <li>Post-hoc: rank / logit / mean / grid / AUC-weighted blend; logistic stack; isotonic/Platt calibration; fail-closed <code>scripts/promote.py</code>.</li>
   </ul>
+  <h3>Scored on real data this run (80k×3 diagnostic — not 5-fold)</h3>
+  <p>Official Kaggle CSVs were downloaded for audit + subsample ranking. Control <code>lgbm_nocat_diag80000</code> reproduced <strong>0.954317</strong>. New flags were flat or worse (interactions −0.00135). ExtraTrees 0.925 with blend weight 0 vs LGBM. See Honest metrics.</p>
   <h3>Kernel-only (compute, not missing code)</h3>
   <ul>
-    <li>Full 5-fold on 691,369 rows for any new config (CatBoost, XGB nocat, ExtraTrees, missflags, interactions, …).</li>
-    <li>Calibrate/stack/rank-blend on <strong>real</strong> <code>lgbm_nocat</code> / <code>histgb_nocat</code> OOF (those npy/parquet files are gitignored).</li>
+    <li>Full 5-fold on 691,369 rows for any <em>new</em> config — none of the new flags earned that budget.</li>
+    <li>CatBoost / XGBoost nocat (packages not installed in this VM).</li>
     <li>Leaderboard numbers. This report does not invent them.</li>
   </ul>
-  <div class="callout">This VM typically has empty <code>data/raw/</code>. Synthetic smoke proves the pipeline; it is not a competition score. If Kaggle CSVs are downloaded, <code>audit_data.py</code> may run on the real tables without a 5-fold train.</div>
+  <div class="callout">Real-data contract audit used the official 691,369 / 296,302 tables. Synthetic smoke was used only to prove new CLIs before real CSVs were mounted. Diagnostic 80k AUCs are ranking-only.</div>
 </section>
 
 <section id="coverage">
@@ -195,12 +197,12 @@ Rollback: submissions/lgbm_nocat.csv or blend_nocat.csv. Never retrain to roll b
     <thead><tr><th>#</th><th>Path</th><th>Status</th><th>Why</th></tr></thead>
     <tbody>
       <tr><td>1</td><td>Data contract &amp; leakage audit</td><td class="status s-impl">implemented</td><td><code>s6e8/contracts.py</code>, <code>scripts/audit_data.py</code>; EDA already scored id/PSI on real tables</td></tr>
-      <tr><td>2</td><td>Missing flags / n_missing / ratios / interactions / bins / leisure-work</td><td class="status s-impl">implemented + some dead-end</td><td>Flags in YAML. Ratios and n_missing lost to raw on 80k. Interactions/bins/missflags ready for Kernel</td></tr>
-      <tr><td>3</td><td>LGBM / HistGB / XGB / CatBoost / logreg / ExtraTrees</td><td class="status s-kernel">LGBM+HistGB scored; others implemented</td><td>MLP skipped (no neural trainer; GBMs already ~0.96). GPU only via <code>runtime.accelerator</code></td></tr>
-      <tr><td>4</td><td>Missingness as signal</td><td class="status s-impl">implemented</td><td>Indicators + n_missing; linear/ET still impute</td></tr>
-      <tr><td>5</td><td>Cats: native / drop / OHE / ordinal / NA-level</td><td class="status s-impl">implemented</td><td>Drop won on Kernel; other encodings are ablations</td></tr>
-      <tr><td>6</td><td>Isotonic / Platt</td><td class="status s-block">implemented, blocked on parent OOF</td><td>Needs gitignored Kernel OOF</td></tr>
-      <tr><td>7</td><td>Rank / weighted / grid blend / logistic stack</td><td class="status s-kernel">grid scored; others implemented</td><td>Grid +0.000035. Stack of nocat+TE already hurt</td></tr>
+      <tr><td>2</td><td>Missing flags / ratios / interactions / bins / leisure-work</td><td class="status s-dead">dead-end (80k real)</td><td>missflags +0.000144 (noise); interactions −0.00135; leisure/bins flat-to-down</td></tr>
+      <tr><td>3</td><td>LGBM / HistGB / XGB / CatBoost / logreg / ExtraTrees</td><td class="status s-kernel">LGBM+HistGB scored; ET/logreg dead; CB/XGB blocked on pip extra</td><td>MLP skipped. GPU only via <code>runtime.accelerator</code></td></tr>
+      <tr><td>4</td><td>Missingness as signal</td><td class="status s-dead">dead-end</td><td>Indicators within fold std; n_missing already lost to raw</td></tr>
+      <tr><td>5</td><td>Cats: native / drop / OHE / ordinal / NA-level</td><td class="status s-dead">drop won</td><td>Ordinal 0.954108; NA-level 0.954091 vs nocat 0.954317</td></tr>
+      <tr><td>6</td><td>Isotonic / Platt</td><td class="status s-dead">dead-end for AUC</td><td>LGBM ECE already 0.0042; Platt ECE 0.035</td></tr>
+      <tr><td>7</td><td>Rank / weighted / grid blend / logistic stack</td><td class="status s-kernel">grid scored; weak partners hurt</td><td>Grid +0.000035 on full 5-fold. LGBM+logreg/ET blends lose</td></tr>
       <tr><td>8</td><td>Slice metrics</td><td class="status s-impl">implemented</td><td>Written into metrics.json; CLI eval_slices</td></tr>
       <tr><td>9</td><td>Error analysis → next YAML</td><td class="status s-impl">implemented</td><td><code>scripts/error_analysis.py</code></td></tr>
       <tr><td>10</td><td>Promotion gates</td><td class="status s-impl">implemented</td><td>Fail closed on missing OOF / diagnostic / AUC drop</td></tr>
@@ -240,21 +242,31 @@ python3 scripts/error_analysis.py --experiment lgbm_nocat</pre>
     <li><code>histgb_nocat</code> OOF AUC 0.962140 (std 0.000458, 178s)</li>
     <li><code>blend_nocat</code> OOF AUC <strong>0.963806</strong> (grid 0.85 LGBM + 0.15 HistGB)</li>
   </ul>
-  <p><strong>Not competition scores:</strong> 80k×3 ranking table in <code>experiments/LOG.md</code>; full-data 3-fold TE screen 0.923636; any synthetic smoke AUC produced on this VM.</p>
-  <p id="synthetic-note">Synthetic smoke in this agent run is recorded after pytest (pipeline integrity only). If that paragraph is still empty, tests had not been executed when the HTML was first written.</p>
+  <p><strong>Real-data contract audit</strong> (full official CSVs, this run): train 691,369; test 296,302; positive rate <strong>0.709424</strong>; id overlap 0; id-vs-label AUC 0.5007; daily &lt; component-sum rows 0; numeric PSI ~10<sup>−5</sup>. Audit <code>ok=true</code>. Missing-rate train/test gaps of ~0.02–0.03 on daily_screen, social_media, app_opens, academic_work_impact (warnings only).</p>
+  <p><strong>Real 80k×3 ranking</strong> (official train subsample, seed 42 — <em>not</em> a competition score). Control reproduced the old log:</p>
+  <ul>
+    <li><code>lgbm_nocat_diag80000</code> OOF <strong>0.954317</strong> (std 0.000303) — exact match to prior LOG</li>
+    <li>missflags 0.954461 (+0.000144, inside fold std)</li>
+    <li>leisure_work 0.954284; bins 0.954196; ordinal 0.954108; cat NA-level 0.954091</li>
+    <li>interactions <strong>0.952966 (−0.00135)</strong> — stop</li>
+    <li>logreg_nocat 0.913096; ExtraTrees 0.925209 (grid blend vs LGBM → weight 1.0 / 0.0)</li>
+    <li>isotonic 0.954025, ECE 0.0042→0.0035; Platt ECE <strong>0.0348</strong> (worse)</li>
+    <li>hard band n=12,219, AUC 0.637; max residual-column AUC 0.516 → stop_or_ensemble</li>
+  </ul>
+  <p id="synthetic-note"><strong>Synthetic smoke</strong> (240-row schema CSVs, 2-fold): pipeline-only. missflags OOF 0.848; ExtraTrees 0.740; logreg 0.798; isotonic ECE 0.167→0.058; <code>promote.py</code> rejected the diagnostic run (fail closed). Do not compare these AUCs to 0.96 Kernel numbers.</p>
 </section>
 
 <section id="exhaustion">
   <h2>Remaining risks and exhaustion claim</h2>
-  <p>Local/config-driven modeling paths are exhausted in this sense: every high-value family the YAML pipeline can express now has a trainer and a unique config (or a documented skip). Further AUC movement requires <strong>Kernel compute</strong> on those configs, or a new signal that error analysis has so far failed to find in the hard band (column AUC ≈ 0.50 vs residual).</p>
+  <p>Local/config-driven modeling paths are exhausted: every high-value family has a trainer and a unique config (or a documented skip), and the new arithmetic / encoding / ExtraTrees / linear-stack paths were <strong>falsified on real 80k×3 data</strong> using the same protocol as the existing ranking log.</p>
   <ul>
-    <li>Hard-band (~93k rows, p∈(0.3,0.7)) remains the error mass; arithmetic extras including TE lookups did not fix it.</li>
-    <li>CatBoost / ExtraTrees may add blend diversity; they are unlikely to beat LightGBM alone.</li>
-    <li>Calibration can improve ECE while creating probability ties; promotion allows at most a −0.0005 AUC delta.</li>
-    <li>Do not mix original 7,500 rows into train.</li>
-    <li>Do not treat empty <code>data/raw/</code> as “the model is done on Kaggle.”</li>
+    <li>Hard-band (80k sample: 12,219 rows, AUC 0.637; full-data ~93k / 0.641) remains the error mass. Residual column AUC max 0.516.</li>
+    <li>Missing flags (+0.000144) do not clear fold std. Interactions <em>hurt</em> (−0.00135). Do not 5-fold them.</li>
+    <li>ExtraTrees is weaker than LGBM and receives blend weight 0. CatBoost/XGBoost nocat remain optional Kernel extras (packages not installed here).</li>
+    <li>LGBM is already well calibrated (ECE 0.0042). Platt made ECE worse. Skip calibration for ranking.</li>
+    <li>Do not mix original 7,500 rows into train. Do not GPU-force baseline LightGBM.</li>
   </ul>
-  <p>There is <strong>no further high-value local modeling path</strong> that is missing from code/config. What remains is running the new YAML on a Kernel and promoting only if <code>scripts/promote.py</code> passes against <code>lgbm_nocat</code>.</p>
+  <p>There is <strong>no further high-value local modeling path</strong> left unimplemented or untested on this protocol. What remains is optional Kernel CatBoost/XGB nocat, and submitting the already-scored <code>lgbm_nocat</code> / <code>blend_nocat</code> CSVs if a leaderboard row is wanted.</p>
 </section>
 
 <footer>
