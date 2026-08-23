@@ -1,0 +1,52 @@
+{
+  "n": 691369,
+  "lo": 0.3,
+  "hi": 0.7,
+  "auc_all": 0.9638005506297351,
+  "band": {
+    "n": 91130,
+    "frac": 0.13181094321556217,
+    "pos_rate": 0.5013826401843521,
+    "auc": 0.6382868000276987
+  },
+  "outside": {
+    "n": 600239,
+    "frac": 0.8681890567844378,
+    "pos_rate": 0.7410098310839516,
+    "auc": 0.9800004178508948
+  },
+  "feature_auc_in_band": {
+    "age": 0.4998971076317826,
+    "daily_screen_time_hours": 0.4979520347049753,
+    "social_media_hours": 0.5052477865251688,
+    "gaming_hours": 0.49528076981387587,
+    "work_study_hours": 0.49851594262094767,
+    "sleep_hours": 0.5027785449240908,
+    "notifications_per_day": 0.5001653823952132,
+    "app_opens_per_day": 0.4998230135845646,
+    "weekend_screen_time": 0.5014369221134716
+  },
+  "residual_corr_in_band": {
+    "age": 0.00014006632990032198,
+    "daily_screen_time_hours": -0.02834628265934775,
+    "social_media_hours": -0.04102891249756548,
+    "gaming_hours": -0.01121153848479047,
+    "work_study_hours": -0.009374431788610313,
+    "sleep_hours": 0.0008248229886839381,
+    "notifications_per_day": 0.0036297504224184836,
+    "app_opens_per_day": -0.004670694238132206,
+    "weekend_screen_time": -0.020017723044487117
+  },
+  "compare": {
+    "name": "lgbm_nocat",
+    "auc_all": 0.9637713704727537,
+    "auc_on_primary_band": 0.6412879892235744,
+    "own_band": {
+      "n": 93459,
+      "frac": 0.1351796218806455,
+      "pos_rate": 0.5004761446195658,
+      "auc": 0.6411304725885768
+    }
+  },
+  "experiment": "lgbm_freq_v1"
+}
