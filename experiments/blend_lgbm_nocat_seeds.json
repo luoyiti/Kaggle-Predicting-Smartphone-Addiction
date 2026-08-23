@@ -1,0 +1,24 @@
+{
+  "experiment": "blend_lgbm_nocat_seeds",
+  "cv_auc": 0.9642895939945768,
+  "method": "grid",
+  "components": [
+    "lgbm_nocat",
+    "lgbm_nocat_seed7",
+    "lgbm_nocat_seed2026"
+  ],
+  "weights": {
+    "lgbm_nocat": 0.35,
+    "lgbm_nocat_seed7": 0.4,
+    "lgbm_nocat_seed2026": 0.25
+  },
+  "component_auc": {
+    "lgbm_nocat": 0.9637713704727537,
+    "lgbm_nocat_seed7": 0.9638373380158707,
+    "lgbm_nocat_seed2026": 0.9636909277000907
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "grid blend of lgbm_nocat, lgbm_nocat_seed7, lgbm_nocat_seed2026"
+}

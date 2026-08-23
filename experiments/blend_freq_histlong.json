@@ -1,0 +1,21 @@
+{
+  "experiment": "blend_freq_histlong",
+  "cv_auc": 0.9642834691150144,
+  "method": "grid",
+  "components": [
+    "lgbm_freq_v1",
+    "histgb_nocat_long_v1"
+  ],
+  "weights": {
+    "lgbm_freq_v1": 0.55,
+    "histgb_nocat_long_v1": 0.45
+  },
+  "component_auc": {
+    "lgbm_freq_v1": 0.963800550629735,
+    "histgb_nocat_long_v1": 0.9634682524075684
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "grid blend of lgbm_freq_v1, histgb_nocat_long_v1"
+}

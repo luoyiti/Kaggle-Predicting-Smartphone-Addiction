@@ -2,7 +2,9 @@
 """Blend saved OOF predictions by maximizing OOF ROC-AUC.
 
 Example:
-  python scripts/blend_oof.py --experiments lgbm_raw histgb_raw --method rank
+  python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid
+  python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_v1 --method stack_logistic
+  python scripts/blend_oof.py --experiments catboost_exactcat_budget_v1 catboost_exactcat_budget_seed7 catboost_exactcat_budget_seed2026 --method mean --name catboost_exactcat_budget_seedavg
 """
 
 from __future__ import annotations
@@ -10,7 +12,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from itertools import product
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,50 +22,83 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
+from s6e8.blending import (
+    BLEND_METHODS,
+    blend_geom,
+    blend_geom_grid,
+    blend_grid,
+    blend_logit,
+    blend_mean,
+    blend_power,
+    blend_power_grid,
+    blend_rank,
+    blend_rank_grid,
+    stack_logistic_cv,
+    stack_ridge_cv,
+)
 from s6e8.data import PROJECT_ROOT
+from s6e8.oof_guard import (
+    REQUIRED_OOF_FILES,
+    check_npy_shape,
+    validate_blend_protocol,
+    validate_prediction_frames,
+    warn_if_budget_v1_not_cpu_dropcats,
+)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Blend experiment OOF / test predictions")
+    parser = argparse.ArgumentParser(
+        description="Blend experiment OOF / test predictions",
+        epilog=(
+            "Seed-average CatBoost after Kaggle 5-folds: python scripts/blend_oof.py "
+            "--experiments catboost_exactcat_budget_v1 catboost_exactcat_budget_seed7 "
+            "catboost_exactcat_budget_seed2026 --method mean "
+            "--name catboost_exactcat_budget_seedavg"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--experiments", nargs="+", required=True)
     parser.add_argument("--oof-dir", default="oof")
-    parser.add_argument("--method", choices=["mean", "rank", "logit", "grid"], default="grid")
+    parser.add_argument("--method", choices=BLEND_METHODS, default="grid")
     parser.add_argument("--name", default=None, help="Output experiment name")
     parser.add_argument("--submission-dir", default="submissions")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--n-splits", type=int, default=5, help="Inner CV splits for stack_* methods")
+    parser.add_argument("--C", type=float, default=1.0, help="Logistic C for stack_logistic")
+    parser.add_argument("--alpha", type=float, default=1.0, help="Ridge alpha for stack_ridge")
+    parser.add_argument("--grid-step", type=int, default=5)
+    parser.add_argument(
+        "--power",
+        type=float,
+        default=2.0,
+        help="Exponent for power / power_grid (p=-1 harmonic, p=0 geometric, p=2 quadratic)",
+    )
     return parser.parse_args()
 
 
 def _load(exp: str, oof_root: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     folder = oof_root / exp
+    missing = [name for name in REQUIRED_OOF_FILES if not (folder / name).exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing {missing} for experiment {exp!r} under {folder}. "
+            "Train each listed experiment (Kaggle 5-fold) before blending. "
+            "Seed-average CatBoost after the three budget seed runs exist:\n"
+            "  python scripts/blend_oof.py --experiments "
+            "catboost_exactcat_budget_v1 catboost_exactcat_budget_seed7 "
+            "catboost_exactcat_budget_seed2026 --method mean "
+            "--name catboost_exactcat_budget_seedavg"
+        )
     oof = pd.read_parquet(folder / "oof.parquet")
     test = pd.read_parquet(folder / "test.parquet")
     metrics = json.loads((folder / "metrics.json").read_text(encoding="utf-8"))
+    oof_pred, test_pred = validate_prediction_frames(exp, oof, test, metrics)
+    check_npy_shape(folder, "oof", oof_pred)
+    check_npy_shape(folder, "test", test_pred)
+    warning = warn_if_budget_v1_not_cpu_dropcats(exp, metrics)
+    if warning:
+        print(f"WARNING: {warning}", flush=True)
     return oof, test, metrics
-
-
-def _rank(x: np.ndarray) -> np.ndarray:
-    return pd.Series(x).rank(method="average").to_numpy() / (len(x) + 1.0)
-
-
-def _logit(p: np.ndarray, eps: float = 1e-6) -> np.ndarray:
-    p = np.clip(p, eps, 1 - eps)
-    return np.log(p / (1 - p))
-
-
-def _sigmoid(z: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-z))
-
-
-def _grid_weights(n: int, step: int = 5) -> list[tuple[float, ...]]:
-    ticks = list(range(0, 101, step))
-    out = []
-    for combo in product(ticks, repeat=n):
-        if sum(combo) != 100:
-            continue
-        if all(v == 0 for v in combo):
-            continue
-        out.append(tuple(v / 100.0 for v in combo))
-    return out
 
 
 def main() -> None:
@@ -79,57 +113,94 @@ def main() -> None:
     ids = None
     test_ids = None
     rows = []
+    loaded_metrics: list[tuple[str, dict]] = []
     for exp in args.experiments:
         oof, test, metrics = _load(exp, oof_root)
+        loaded_metrics.append((exp, metrics))
         oof = oof.sort_values("id").reset_index(drop=True)
         test = test.sort_values("id").reset_index(drop=True)
+        oof_pred, test_pred = validate_prediction_frames(exp, oof, test, metrics)
         if y is None:
+            if "addicted_label" not in oof.columns:
+                raise ValueError(f"{exp} OOF missing addicted_label")
             y = oof["addicted_label"].to_numpy()
             ids = oof["id"].to_numpy()
             test_ids = test["id"].to_numpy()
         else:
             if not np.array_equal(ids, oof["id"].to_numpy()):
-                raise ValueError(f"{exp} OOF ids do not align")
+                raise ValueError(
+                    f"{exp} OOF ids do not align "
+                    f"(n={len(oof)} vs first n={len(ids)})"
+                )
             if not np.array_equal(test_ids, test["id"].to_numpy()):
-                raise ValueError(f"{exp} test ids do not align")
-        oofs.append(oof["pred"].to_numpy())
-        tests.append(test["pred"].to_numpy())
+                raise ValueError(
+                    f"{exp} test ids do not align "
+                    f"(n={len(test)} vs first n={len(test_ids)})"
+                )
+            if oof_pred.shape != oofs[0].shape:
+                raise ValueError(
+                    f"{exp} OOF pred shape {oof_pred.shape} != {oofs[0].shape}"
+                )
+            if test_pred.shape != tests[0].shape:
+                raise ValueError(
+                    f"{exp} test pred shape {test_pred.shape} != {tests[0].shape}"
+                )
+        if y is not None and oof_pred.shape != np.asarray(y).shape:
+            raise ValueError(
+                f"{exp} OOF pred shape {oof_pred.shape} != labels {np.asarray(y).shape}"
+            )
+        oofs.append(oof_pred)
+        tests.append(test_pred)
         rows.append((exp, float(metrics.get("oof_auc", np.nan))))
         print(f"{exp}: oof_auc={metrics.get('oof_auc')} n_train={len(oof)}")
+    validate_blend_protocol(loaded_metrics)
 
     stacked = np.vstack(oofs)
     corr = np.corrcoef(stacked)
     print("OOF Pearson correlation:")
     print(pd.DataFrame(corr, index=args.experiments, columns=args.experiments).round(4))
 
+    extra: dict = {}
     method = args.method
     if method == "mean":
-        weights = np.ones(len(args.experiments)) / len(args.experiments)
-        blend_oof = stacked.mean(axis=0)
-        blend_test = np.vstack(tests).mean(axis=0)
+        blend_oof, blend_test, weights = blend_mean(oofs, tests)
     elif method == "rank":
-        weights = np.ones(len(args.experiments)) / len(args.experiments)
-        blend_oof = np.mean([_rank(x) for x in oofs], axis=0)
-        blend_test = np.mean([_rank(x) for x in tests], axis=0)
+        blend_oof, blend_test, weights = blend_rank(oofs, tests)
     elif method == "logit":
-        weights = np.ones(len(args.experiments)) / len(args.experiments)
-        blend_oof = _sigmoid(np.mean([_logit(x) for x in oofs], axis=0))
-        blend_test = _sigmoid(np.mean([_logit(x) for x in tests], axis=0))
+        blend_oof, blend_test, weights = blend_logit(oofs, tests)
+    elif method == "grid":
+        blend_oof, blend_test, weights = blend_grid(oofs, tests, y, step=args.grid_step)
+    elif method == "geom":
+        blend_oof, blend_test, weights = blend_geom(oofs, tests)
+    elif method == "power":
+        blend_oof, blend_test, weights = blend_power(oofs, tests, args.power)
+        extra["power"] = float(args.power)
+    elif method == "rank_grid":
+        blend_oof, blend_test, weights = blend_rank_grid(
+            oofs, tests, y, step=args.grid_step
+        )
+    elif method == "geom_grid":
+        blend_oof, blend_test, weights = blend_geom_grid(
+            oofs, tests, y, step=args.grid_step
+        )
+    elif method == "power_grid":
+        blend_oof, blend_test, weights = blend_power_grid(
+            oofs, tests, y, args.power, step=args.grid_step
+        )
+        extra["power"] = float(args.power)
+    elif method == "stack_logistic":
+        blend_oof, blend_test, weights, extra = stack_logistic_cv(
+            oofs, tests, y, seed=args.seed, n_splits=args.n_splits, C=args.C
+        )
+    elif method == "stack_ridge":
+        blend_oof, blend_test, weights, extra = stack_ridge_cv(
+            oofs, tests, y, seed=args.seed, n_splits=args.n_splits, alpha=args.alpha
+        )
     else:
-        best_auc = -1.0
-        weights = np.ones(len(args.experiments)) / len(args.experiments)
-        blend_oof = stacked.mean(axis=0)
-        for w in _grid_weights(len(args.experiments)):
-            pred = np.tensordot(w, stacked, axes=(0, 0))
-            auc = float(roc_auc_score(y, pred))
-            if auc > best_auc:
-                best_auc = auc
-                weights = np.array(w, dtype=float)
-                blend_oof = pred
-        blend_test = np.tensordot(weights, np.vstack(tests), axes=(0, 0))
+        raise ValueError(f"Unknown blend method {method!r}")
 
     auc = float(roc_auc_score(y, blend_oof))
-    weight_map = {k: float(v) for k, v in zip(args.experiments, weights)}
+    weight_map = {k: float(v) for k, v in zip(args.experiments, np.asarray(weights).ravel())}
     print(f"blend method={method} weights={weight_map} oof_auc={auc:.6f}")
     singles = ", ".join(f"{n}={a:.6f}" for n, a in rows)
     print(f"components: {singles}")
@@ -142,15 +213,18 @@ def main() -> None:
     pd.DataFrame({"id": ids, "addicted_label": y, "pred": blend_oof}).to_parquet(
         out_dir / "oof.parquet", index=False
     )
-    pd.DataFrame({"id": test_ids, "pred": blend_test}).to_parquet(out_dir / "test.parquet", index=False)
+    pd.DataFrame({"id": test_ids, "pred": blend_test}).to_parquet(
+        out_dir / "test.parquet", index=False
+    )
     metrics = {
         "experiment": name,
         "method": method,
         "components": args.experiments,
-        "weights": {k: float(v) for k, v in zip(args.experiments, weights)},
+        "weights": weight_map,
         "oof_auc": auc,
         "component_auc": {k: v for k, v in rows},
         "oof_corr": corr.tolist(),
+        **extra,
     }
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     records_dir = PROJECT_ROOT / "experiments"
@@ -165,8 +239,13 @@ def main() -> None:
         "n_train": int(len(blend_oof)),
         "n_test": int(len(blend_test)),
         "diagnostic": False,
-        "change": f"grid/mean blend of {', '.join(args.experiments)}",
+        "change": f"{method} blend of {', '.join(args.experiments)}",
     }
+    if "power" in extra:
+        record["power"] = extra["power"]
+        record["change"] = (
+            f"{method} p={extra['power']} blend of {', '.join(args.experiments)}"
+        )
     (records_dir / f"{name}.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
     sub_dir = Path(args.submission_dir)
     if not sub_dir.is_absolute():

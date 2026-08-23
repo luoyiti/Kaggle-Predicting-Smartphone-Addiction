@@ -33,6 +33,7 @@ def test_prepare_kernel_staging(tmp_path, repo_root):
     meta = json.loads((staging / "kernel-metadata.json").read_text(encoding="utf-8"))
     assert meta["enable_gpu"] is False
     assert meta["competition_sources"] == ["playground-series-s6e8"]
+    assert meta["dataset_sources"] == []
     assert meta["code_file"] == "runner.py"
     runner = (staging / "runner.py").read_text(encoding="utf-8")
     assert "configs/baseline.yaml" in runner
@@ -65,6 +66,38 @@ def test_prepare_kernel_gpu_metadata(tmp_path, repo_root):
     meta = json.loads((staging / "kernel-metadata.json").read_text(encoding="utf-8"))
     assert meta["enable_gpu"] is True
     assert meta["machine_shape"] == "NvidiaTeslaT4"
+
+
+def test_prepare_kernel_attaches_reference_dataset_source(tmp_path, repo_root):
+    staging = tmp_path / "kernel-ref"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "prepare_kaggle_kernel.py"),
+            "--config",
+            "configs/catboost_exactcat_budget_refdist_v1.yaml",
+            "--accelerator",
+            "cpu",
+            "--username",
+            "testuser",
+            "--slug",
+            "s6e8-cloud-train",
+            "--out",
+            str(staging),
+            "--git-commit",
+            "deadbeef",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    meta = json.loads((staging / "kernel-metadata.json").read_text(encoding="utf-8"))
+    assert meta["dataset_sources"] == [
+        "jayjoshi37/smartphone-usage-and-addiction-prediction"
+    ]
+    assert meta["competition_sources"] == ["playground-series-s6e8"]
+    assert "dataset_sources=['jayjoshi37/smartphone-usage-and-addiction-prediction']" in proc.stdout
 
 
 def test_kernel_metadata_template_is_safe(repo_root):

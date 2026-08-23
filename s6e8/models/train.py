@@ -16,7 +16,11 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 
 from s6e8 import __version__ as package_version
 from s6e8.data import PROJECT_ROOT, load_sample_submission, resolve_path
-from s6e8.features import feature_columns, transform
+from s6e8.features import categorical_feature_columns, feature_columns, transform
+from s6e8.frequency_encoding import apply_fold_frequency_encoding, parse_frequency_config
+from s6e8.error_band import band_mask
+from s6e8.hard_band import apply_hard_band_fold, parse_hard_band_config, resolve_band_pred
+from s6e8.reference_features import apply_reference_features
 from s6e8.runtime import (
     apply_model_device,
     experiment_summary,
@@ -40,6 +44,12 @@ BACKEND_ALIASES = {
     "logreg": "logreg",
     "logistic": "logreg",
     "logisticregression": "logreg",
+    "mlp": "mlp",
+    "sklearn_mlp": "mlp",
+    "mlpclassifier": "mlp",
+    "entity_mlp": "entity_mlp",
+    "torch_mlp": "entity_mlp",
+    "hash_mlp": "entity_mlp",
 }
 
 
@@ -169,12 +179,13 @@ def _prepare_xy(
     test_df: pd.DataFrame,
     y: pd.Series,
     config: dict[str, Any],
-) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, list[str], list[str]]:
+) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, list[str], list[str], dict[str, Any]]:
     train_feat = transform(train_df, config)
     test_feat = transform(test_df, config)
+    train_feat, test_feat, ref_meta = apply_reference_features(train_feat, test_feat, config)
     cols = feature_columns(train_feat, config)
-    cat_cols = [c for c in config["features"]["categorical"] if c in cols]
-    return train_feat[cols], test_feat[cols], y.to_numpy(), cols, cat_cols
+    cat_cols = [c for c in categorical_feature_columns(train_feat, config) if c in cols]
+    return train_feat[cols], test_feat[cols], y.to_numpy(), cols, cat_cols, ref_meta
 
 
 def _run_cv(
@@ -186,8 +197,10 @@ def _run_cv(
 ) -> dict[str, Any]:
     seed = int(config["experiment"]["seed"])
     set_seed(seed)
-    X, X_test, y_np, cols, cat_cols = _prepare_xy(train_df, test_df, y, config)
+    X, X_test, y_np, cols, cat_cols, ref_meta = _prepare_xy(train_df, test_df, y, config)
     te_cfg = parse_exact_te_config(config)
+    freq_cfg = parse_frequency_config(config)
+    hb_cfg = parse_hard_band_config(config)
     cv_cfg = config["cv"]
     splitter = StratifiedKFold(
         n_splits=int(cv_cfg["n_splits"]),
@@ -200,6 +213,8 @@ def _run_cv(
     fold_scores: list[float] = []
     best_iterations: list[int] = []
     te_fold_stats: list[dict[str, Any]] = []
+    freq_fold_stats: list[dict[str, Any]] = []
+    hb_fold_stats: list[dict[str, Any]] = []
     feature_importances: list[dict[str, dict[str, float]]] = []
     feature_names = list(cols)
     ctx = {
@@ -210,12 +225,32 @@ def _run_cv(
         "accelerator": get_accelerator(config),
         "feature_importances": feature_importances,
     }
-    te_note = ""
+    extra_notes = []
     if te_cfg is not None:
-        te_note = f" exact_te_cols={te_cfg['columns']}"
+        extra_notes.append(f"exact_te_cols={te_cfg['columns']}")
+    if freq_cfg is not None:
+        extra_notes.append(f"freq_cols={freq_cfg['columns']}")
+    if cat_cols:
+        extra_notes.append(f"n_cat={len(cat_cols)}")
+    hb_state: dict[str, Any] | None = None
+    if hb_cfg is not None:
+        train_ids = train_df[config["competition"]["id_col"]].to_numpy()
+        hb_pred, hb_meta = resolve_band_pred(train_ids, X, y_np, hb_cfg, config)
+        hb_state = {"cfg": hb_cfg, "pred": hb_pred, "meta": hb_meta}
+        extra_notes.append(
+            f"hard_band={hb_cfg['mode']} lo={hb_cfg['lo']} hi={hb_cfg['hi']} "
+            f"source={hb_meta.get('source')} "
+            f"n_band={int(band_mask(hb_pred, hb_cfg['lo'], hb_cfg['hi']).sum())}"
+        )
+    if ref_meta:
+        extra_notes.append(
+            f"ref_cols={len(ref_meta.get('added_columns') or [])} "
+            f"ref_rows={ref_meta.get('retained_rows')}"
+        )
+    note = (" " + " ".join(extra_notes)) if extra_notes else ""
     print(
         f"model={config['model']['name']} backend={resolve_backend(config)} "
-        f"accelerator={ctx['accelerator']} n_raw_features={len(cols)}{te_note}"
+        f"accelerator={ctx['accelerator']} n_raw_features={len(cols)}{note}"
     )
 
     for fold, (tr_idx, va_idx) in enumerate(splitter.split(X, y_np), start=1):
@@ -234,6 +269,40 @@ def _run_cv(
             print(
                 f"[fold {fold}] n_features={len(feature_names)} "
                 f"te_unseen={n_unseen} te_rare={n_rare}"
+            )
+        if freq_cfg is not None:
+            X_tr, X_va, X_te, freq_stats = apply_fold_frequency_encoding(
+                X_tr, X_va, X_te, freq_cfg
+            )
+            freq_fold_stats.append(freq_stats)
+            feature_names = list(X_tr.columns)
+            ctx["cols"] = feature_names
+            n_unseen = sum(int(v["n_val_unseen"]) for v in freq_stats["columns"].values())
+            print(
+                f"[fold {fold}] n_features={len(feature_names)} freq_unseen={n_unseen}"
+            )
+        ctx["train_weight"] = None
+        ctx["X_va_eval"] = X_va
+        ctx["y_va_eval"] = y_va
+        if hb_state is not None:
+            applied = apply_hard_band_fold(
+                X_tr,
+                y_tr,
+                X_va,
+                y_va,
+                hb_state["pred"][tr_idx],
+                hb_state["pred"][va_idx],
+                hb_state["cfg"],
+            )
+            X_tr, y_tr = applied["X_tr"], applied["y_tr"]
+            ctx["train_weight"] = applied["train_weight"]
+            ctx["X_va_eval"] = applied["X_va_eval"]
+            ctx["y_va_eval"] = applied["y_va_eval"]
+            hb_fold_stats.append(applied["stats"])
+            print(
+                f"[fold {fold}] hard_band train_used={applied['stats']['n_train_used']}/"
+                f"{applied['stats']['n_train']} eval={applied['stats']['n_valid_eval']}/"
+                f"{applied['stats']['n_valid']}"
             )
         va_pred, te_pred, best_iter = fold_fn(X_tr, y_tr, X_va, y_va, X_te, ctx)
         oof[va_idx] = va_pred.astype(dtype, copy=False)
@@ -262,7 +331,12 @@ def _run_cv(
         "backend": resolve_backend(config),
         "te_config": te_cfg,
         "te_fold_stats": te_fold_stats,
+        "freq_config": freq_cfg,
+        "freq_fold_stats": freq_fold_stats,
+        "hard_band": None if hb_state is None else {**hb_state["meta"], "folds": hb_fold_stats},
+        "cat_cols": cat_cols,
         "feature_importances": feature_importances,
+        "reference_features": ref_meta,
     }
 
 
@@ -279,8 +353,39 @@ def train_cv(
         "catboost": _fold_catboost,
         "histgb": _fold_histgb,
         "logreg": _fold_logreg,
+        "mlp": _fold_mlp,
+        "entity_mlp": _fold_entity_mlp,
     }
     return _run_cv(train_df, test_df, y, config, trainers[backend])
+
+
+def apply_monotone_constraints(
+    params: dict[str, Any],
+    feature_names: list[str],
+    config: dict[str, Any],
+    backend: str,
+) -> dict[str, Any]:
+    """Attach per-column monotone constraints from YAML after the feature list is known."""
+    mapping = (config.get("model") or {}).get("monotone_constraints")
+    if not mapping:
+        return params
+    vec = [int(mapping.get(name, 0)) for name in feature_names]
+    if not any(vec):
+        return params
+    out = dict(params)
+    if backend == "lightgbm":
+        out["monotone_constraints"] = vec
+    elif backend == "xgboost":
+        out["monotone_constraints"] = "(" + ",".join(str(v) for v in vec) + ")"
+    return out
+
+
+def _eval_frames(X_va, y_va, ctx):
+    X_eval = ctx.get("X_va_eval")
+    y_eval = ctx.get("y_va_eval")
+    if X_eval is None:
+        return X_va, y_va
+    return X_eval, y_eval
 
 
 def _fold_lightgbm(X_tr, y_tr, X_va, y_va, X_test, ctx):
@@ -288,14 +393,25 @@ def _fold_lightgbm(X_tr, y_tr, X_va, y_va, X_test, ctx):
     params = apply_model_device(
         dict(model_cfg["params"]), model_cfg["name"], ctx["accelerator"]
     )
+    params = apply_monotone_constraints(
+        params, list(X_tr.columns), ctx["config"], "lightgbm"
+    )
     params["seed"] = ctx["seed"]
     params["feature_fraction_seed"] = ctx["seed"]
     params["bagging_seed"] = ctx["seed"]
     cat_cols = ctx["cat_cols"]
-    dtrain = lgb.Dataset(X_tr, label=y_tr, categorical_feature=cat_cols, free_raw_data=False)
+    train_weight = ctx.get("train_weight")
+    dtrain = lgb.Dataset(
+        X_tr,
+        label=y_tr,
+        weight=train_weight,
+        categorical_feature=cat_cols,
+        free_raw_data=False,
+    )
+    X_va_eval, y_va_eval = _eval_frames(X_va, y_va, ctx)
     dvalid = lgb.Dataset(
-        X_va,
-        label=y_va,
+        X_va_eval,
+        label=y_va_eval,
         categorical_feature=cat_cols,
         reference=dtrain,
         free_raw_data=False,
@@ -335,6 +451,9 @@ def _fold_xgboost(X_tr, y_tr, X_va, y_va, X_test, ctx):
     model_cfg = ctx["config"]["model"]
     params = apply_model_device(
         dict(model_cfg["params"]), model_cfg["name"], ctx["accelerator"]
+    )
+    params = apply_monotone_constraints(
+        params, list(X_tr.columns), ctx["config"], "xgboost"
     )
     params.setdefault("seed", ctx["seed"])
     dtrain = xgb.DMatrix(X_tr, label=y_tr, enable_categorical=True)
@@ -383,15 +502,27 @@ def _fold_catboost(X_tr, y_tr, X_va, y_va, X_test, ctx):
     X_tr_c = _catboost_frame(X_tr, cat_cols)
     X_va_c = _catboost_frame(X_va, cat_cols)
     X_te_c = _catboost_frame(X_test, cat_cols)
+    X_va_eval, y_va_eval = _eval_frames(X_va, y_va, ctx)
+    X_va_eval_c = _catboost_frame(X_va_eval, cat_cols)
     model = CatBoostClassifier(iterations=iterations, **params)
-    model.fit(
-        X_tr_c,
-        y_tr,
-        eval_set=(X_va_c, y_va),
+    fit_kwargs = dict(
+        eval_set=(X_va_eval_c, y_va_eval),
         cat_features=cat_cols,
         early_stopping_rounds=int(model_cfg["early_stopping_rounds"]),
         use_best_model=True,
     )
+    train_weight = ctx.get("train_weight")
+    if train_weight is not None:
+        fit_kwargs["sample_weight"] = train_weight
+    try:
+        model.fit(X_tr_c, y_tr, **fit_kwargs)
+    except Exception as exc:
+        if str(params.get("task_type", "")).upper() != "GPU":
+            raise
+        print(f"CatBoost GPU fit failed ({exc}); retrying on CPU", flush=True)
+        params["task_type"] = "CPU"
+        model = CatBoostClassifier(iterations=iterations, **params)
+        model.fit(X_tr_c, y_tr, **fit_kwargs)
     best_iter = int(model.get_best_iteration() or 0)
     va_pred = model.predict_proba(X_va_c)[:, 1]
     te_pred = model.predict_proba(X_te_c)[:, 1]
@@ -423,10 +554,13 @@ def _filter_init_kwargs(cls: type, params: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
-def fit_histgb(clf: Any, X_tr, y_tr, X_va, y_va) -> Any:
+def fit_histgb(clf: Any, X_tr, y_tr, X_va, y_va, sample_weight=None) -> Any:
     """Fit HistGB on sklearn 1.7+ (X_val) and older Kaggle images (no X_val)."""
+    fit_kwargs: dict[str, Any] = {}
+    if sample_weight is not None:
+        fit_kwargs["sample_weight"] = sample_weight
     if _callable_accepts(clf.fit, "X_val"):
-        clf.fit(X_tr, y_tr, X_val=X_va, y_val=y_va)
+        clf.fit(X_tr, y_tr, X_val=X_va, y_val=y_va, **fit_kwargs)
         return clf
     import sklearn
 
@@ -435,7 +569,7 @@ def fit_histgb(clf: Any, X_tr, y_tr, X_va, y_va) -> Any:
         "early-stopping uses validation_fraction on the fold train split.",
         flush=True,
     )
-    clf.fit(X_tr, y_tr)
+    clf.fit(X_tr, y_tr, **fit_kwargs)
     return clf
 
 
@@ -456,7 +590,8 @@ def _fold_histgb(X_tr, y_tr, X_va, y_va, X_test, ctx):
     params = _filter_init_kwargs(HistGradientBoostingClassifier, params)
     print(f"histgb sklearn={sklearn.__version__}", flush=True)
     clf = HistGradientBoostingClassifier(**params)
-    fit_histgb(clf, X_tr, y_tr, X_va, y_va)
+    X_va_eval, y_va_eval = _eval_frames(X_va, y_va, ctx)
+    fit_histgb(clf, X_tr, y_tr, X_va_eval, y_va_eval, sample_weight=ctx.get("train_weight"))
     best_iter = int(getattr(clf, "n_iter_", 0) or 0)
     va_pred = clf.predict_proba(X_va)[:, 1]
     te_pred = clf.predict_proba(X_test)[:, 1]
@@ -476,23 +611,93 @@ def _fold_logreg(X_tr, y_tr, X_va, y_va, X_test, ctx):
     params.setdefault("solver", "lbfgs")
     cat_cols = ctx["cat_cols"]
     num_cols = [c for c in X_tr.columns if c not in cat_cols]
-    pre = ColumnTransformer(
-        [
-            ("num", Pipeline([
-                ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler()),
-            ]), num_cols),
+    transformers = [
+        ("num", Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+        ]), num_cols),
+    ]
+    if cat_cols:
+        transformers.append(
             ("cat", Pipeline([
                 ("imputer", SimpleImputer(strategy="most_frequent")),
                 ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
             ]), cat_cols),
-        ]
-    )
+        )
+    pre = ColumnTransformer(transformers)
     clf = Pipeline([("pre", pre), ("model", LogisticRegression(random_state=ctx["seed"], **params))])
     clf.fit(X_tr, y_tr)
     va_pred = clf.predict_proba(X_va)[:, 1]
     te_pred = clf.predict_proba(X_test)[:, 1]
     return va_pred, te_pred, 0
+
+
+def _numeric_cat_split(X: pd.DataFrame, cat_cols: list[str]) -> tuple[list[str], list[str]]:
+    cats = [c for c in cat_cols if c in X.columns]
+    nums = [c for c in X.columns if c not in cats]
+    return nums, cats
+
+
+def _fold_mlp(X_tr, y_tr, X_va, y_va, X_test, ctx):
+    from sklearn.compose import ColumnTransformer
+    from sklearn.impute import SimpleImputer
+    from sklearn.neural_network import MLPClassifier
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+    model_cfg = ctx["config"]["model"]
+    params = dict(model_cfg.get("params") or {})
+    params.setdefault("hidden_layer_sizes", (64, 32))
+    params.setdefault("max_iter", 80)
+    params.setdefault("early_stopping", True)
+    params.setdefault("validation_fraction", 0.1)
+    if isinstance(params.get("hidden_layer_sizes"), list):
+        params["hidden_layer_sizes"] = tuple(params["hidden_layer_sizes"])
+    cat_cols = ctx["cat_cols"]
+    num_cols, cat_cols = _numeric_cat_split(X_tr, cat_cols)
+    transformers = [
+        ("num", Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+        ]), num_cols),
+    ]
+    if cat_cols:
+        transformers.append(
+            ("cat", Pipeline([
+                ("imputer", SimpleImputer(strategy="most_frequent")),
+                ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+            ]), cat_cols),
+        )
+    pre = ColumnTransformer(transformers)
+    clf = Pipeline(
+        [
+            ("pre", pre),
+            ("model", MLPClassifier(random_state=ctx["seed"], **params)),
+        ]
+    )
+    clf.fit(X_tr, y_tr)
+    va_pred = clf.predict_proba(X_va)[:, 1]
+    te_pred = clf.predict_proba(X_test)[:, 1]
+    n_iter = int(getattr(clf.named_steps["model"], "n_iter_", 0) or 0)
+    return va_pred, te_pred, n_iter
+
+
+def _fold_entity_mlp(X_tr, y_tr, X_va, y_va, X_test, ctx):
+    from s6e8.models.entity_mlp import fold_predict
+
+    model_cfg = ctx["config"]["model"]
+    params = dict(model_cfg.get("params") or {})
+    return fold_predict(
+        X_tr,
+        y_tr,
+        X_va,
+        y_va,
+        X_test,
+        cat_cols=ctx["cat_cols"],
+        seed=ctx["seed"],
+        accelerator=ctx["accelerator"],
+        params=params,
+    )
 
 
 def _mean_feature_importance(
@@ -585,6 +790,21 @@ def save_artifacts(
     te_fold_stats = artifacts.get("te_fold_stats")
     if te_fold_stats:
         metrics["te_fold_stats"] = te_fold_stats
+    freq_cfg = artifacts.get("freq_config")
+    if freq_cfg:
+        metrics["frequency_encoding"] = freq_cfg
+    freq_fold_stats = artifacts.get("freq_fold_stats")
+    if freq_fold_stats:
+        metrics["freq_fold_stats"] = freq_fold_stats
+    hard_band = artifacts.get("hard_band")
+    if hard_band:
+        metrics["hard_band"] = hard_band
+    cat_cols = artifacts.get("cat_cols") or []
+    metrics["n_categorical_features"] = len(cat_cols)
+    metrics["categorical_feature_names"] = list(cat_cols)
+    ref_meta = artifacts.get("reference_features") or {}
+    if ref_meta:
+        metrics["reference_features"] = ref_meta
     importance_mean = _mean_feature_importance(artifacts.get("feature_importances") or [])
     if importance_mean:
         metrics["feature_importance_gain_mean"] = importance_mean

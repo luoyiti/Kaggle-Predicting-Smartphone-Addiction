@@ -7,6 +7,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from s6e8.structural_features import (
+    add_structural_features,
+    exact_categorical_column_names,
+    lattice_categorical_column_names,
+)
+
 DEFAULT_STRONG_USAGE_COLS = (
     "daily_screen_time_hours",
     "weekend_screen_time",
@@ -134,11 +140,29 @@ def add_engineered_features(df: pd.DataFrame, config: dict[str, Any]) -> pd.Data
     return out
 
 
+def categorical_feature_columns(df: pd.DataFrame, config: dict[str, Any]) -> list[str]:
+    """Categorical columns present after transform, including generated exact copies."""
+    extra_drop = set(config["features"].get("drop") or [])
+    columns = [
+        column
+        for column in config["features"].get("categorical", [])
+        if column in df.columns and column not in extra_drop
+    ]
+    columns.extend(
+        name for name in exact_categorical_column_names(config) if name in df.columns
+    )
+    columns.extend(
+        name for name in lattice_categorical_column_names(config) if name in df.columns
+    )
+    extra = config["features"].get("extra_categorical") or []
+    columns.extend(name for name in extra if name in df.columns and name not in extra_drop)
+    return list(dict.fromkeys(columns))
+
+
 def cast_categoricals(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
     out = df.copy()
-    for col in config["features"]["categorical"]:
-        if col in out.columns:
-            out[col] = out[col].astype("category")
+    for col in categorical_feature_columns(out, config):
+        out[col] = out[col].astype("category")
     return out
 
 
@@ -153,5 +177,6 @@ def feature_columns(df: pd.DataFrame, config: dict[str, Any]) -> list[str]:
 
 def transform(df: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
     out = add_engineered_features(df, config)
+    out = add_structural_features(out, config)
     out = cast_categoricals(out, config)
     return out

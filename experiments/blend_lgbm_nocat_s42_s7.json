@@ -1,0 +1,21 @@
+{
+  "experiment": "blend_lgbm_nocat_s42_s7",
+  "cv_auc": 0.9641986026155288,
+  "method": "grid",
+  "components": [
+    "lgbm_nocat",
+    "lgbm_nocat_seed7"
+  ],
+  "weights": {
+    "lgbm_nocat": 0.5,
+    "lgbm_nocat_seed7": 0.5
+  },
+  "component_auc": {
+    "lgbm_nocat": 0.9637713704727537,
+    "lgbm_nocat_seed7": 0.9638373380158707
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "grid blend of lgbm_nocat, lgbm_nocat_seed7"
+}

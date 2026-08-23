@@ -1,0 +1,24 @@
+{
+  "experiment": "lgbm_nocat_seedavg",
+  "cv_auc": 0.9642867064770508,
+  "method": "mean",
+  "components": [
+    "lgbm_nocat",
+    "lgbm_nocat_seed7",
+    "lgbm_nocat_seed2026"
+  ],
+  "weights": {
+    "lgbm_nocat": 0.3333333333333333,
+    "lgbm_nocat_seed7": 0.3333333333333333,
+    "lgbm_nocat_seed2026": 0.3333333333333333
+  },
+  "component_auc": {
+    "lgbm_nocat": 0.9637713704727537,
+    "lgbm_nocat_seed7": 0.9638373380158707,
+    "lgbm_nocat_seed2026": 0.9636909277000907
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "mean blend of lgbm_nocat, lgbm_nocat_seed7, lgbm_nocat_seed2026"
+}

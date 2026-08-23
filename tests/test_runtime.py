@@ -68,6 +68,15 @@ def test_lightgbm_gpu_device_is_opt_in():
     assert gpu_params["device_type"] == "gpu"
 
 
+def test_catboost_task_type_follows_accelerator_without_forcing_lightgbm():
+    cpu = apply_model_device({"depth": 8}, "catboost", "cpu")
+    gpu = apply_model_device({"depth": 8}, "catboost", "gpu")
+    assert cpu["task_type"] == "CPU"
+    assert gpu["task_type"] == "GPU"
+    lgbm_cpu = apply_model_device({"learning_rate": 0.05}, "lightgbm", "cpu")
+    assert "device_type" not in lgbm_cpu
+
+
 def test_kaggle_input_path_uses_mounted_competition(tmp_path, monkeypatch):
     import s6e8.runtime as runtime
 

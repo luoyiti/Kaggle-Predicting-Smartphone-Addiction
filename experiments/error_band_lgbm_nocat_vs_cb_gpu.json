@@ -1,0 +1,52 @@
+{
+  "n": 691369,
+  "lo": 0.3,
+  "hi": 0.7,
+  "auc_all": 0.9637713704727537,
+  "band": {
+    "n": 93459,
+    "frac": 0.1351796218806455,
+    "pos_rate": 0.5004761446195658,
+    "auc": 0.6411304725885768
+  },
+  "outside": {
+    "n": 597910,
+    "frac": 0.8648203781193545,
+    "pos_rate": 0.742084929169942,
+    "auc": 0.9802745909462547
+  },
+  "feature_auc_in_band": {
+    "age": 0.5015143954504894,
+    "daily_screen_time_hours": 0.49942983511766514,
+    "social_media_hours": 0.5062000580086674,
+    "gaming_hours": 0.4963282229000937,
+    "work_study_hours": 0.4982251944866022,
+    "sleep_hours": 0.5024292223794505,
+    "notifications_per_day": 0.49884113147394493,
+    "app_opens_per_day": 0.49942677007642833,
+    "weekend_screen_time": 0.500970847132582
+  },
+  "residual_corr_in_band": {
+    "age": 0.0029657881356828985,
+    "daily_screen_time_hours": -0.02451309534508439,
+    "social_media_hours": -0.03865156577747794,
+    "gaming_hours": -0.007853964959743023,
+    "work_study_hours": -0.008375259111240813,
+    "sleep_hours": 0.0001020503012845136,
+    "notifications_per_day": 0.0014103528988257544,
+    "app_opens_per_day": -0.005376941672343507,
+    "weekend_screen_time": -0.02235825471920539
+  },
+  "compare": {
+    "name": "catboost_exactcat_budget_gpu_v1",
+    "auc_all": 0.9677317285332205,
+    "auc_on_primary_band": 0.7054400270677798,
+    "own_band": {
+      "n": 81046,
+      "frac": 0.11722538904694887,
+      "pos_rate": 0.5040100683562422,
+      "auc": 0.635564571862134
+    }
+  },
+  "experiment": "lgbm_nocat"
+}

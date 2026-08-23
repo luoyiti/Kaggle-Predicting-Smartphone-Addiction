@@ -1,0 +1,24 @@
+{
+  "experiment": "stack_nocat_freq_histlong",
+  "cv_auc": 0.9643139424529481,
+  "method": "stack_logistic",
+  "components": [
+    "lgbm_nocat",
+    "lgbm_freq_v1",
+    "histgb_nocat_long_v1"
+  ],
+  "weights": {
+    "lgbm_nocat": 2.025272883469565,
+    "lgbm_freq_v1": 2.31863283624431,
+    "histgb_nocat_long_v1": 2.8296606442503305
+  },
+  "component_auc": {
+    "lgbm_nocat": 0.9637713704727537,
+    "lgbm_freq_v1": 0.963800550629735,
+    "histgb_nocat_long_v1": 0.9634682524075684
+  },
+  "n_train": 691369,
+  "n_test": 296302,
+  "diagnostic": false,
+  "change": "stack_logistic blend of lgbm_nocat, lgbm_freq_v1, histgb_nocat_long_v1"
+}
