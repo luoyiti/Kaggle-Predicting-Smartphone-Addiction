@@ -24,6 +24,9 @@ def test_package_imports():
     assert callable(s6e8.frequency_encoding.parse_frequency_config)
     assert callable(s6e8.structural_features.add_structural_features)
     assert callable(s6e8.blending.stack_logistic_cv)
+    assert callable(s6e8.blending.power_mean)
+    assert "geom" in s6e8.blending.BLEND_METHODS
+    assert "power_grid" in s6e8.blending.BLEND_METHODS
     assert callable(s6e8.reference_features.apply_reference_features)
     assert callable(s6e8.models.entity_mlp.hashed_bucket_ids)
     assert callable(s6e8.error_band.analyze_error_band)

@@ -60,6 +60,115 @@ def blend_logit(oofs: list[np.ndarray], tests: list[np.ndarray]) -> tuple[np.nda
     )
 
 
+PROB_EPS = 1e-6
+
+
+def clip_prob(p: np.ndarray, eps: float = PROB_EPS) -> np.ndarray:
+    return np.clip(np.asarray(p, dtype=float), eps, 1.0 - eps)
+
+
+def _normalized_weights(n: int, weights: np.ndarray | None) -> np.ndarray:
+    if weights is None:
+        return np.ones(n, dtype=float) / n
+    w = np.asarray(weights, dtype=float)
+    if w.shape != (n,):
+        raise ValueError(f"weights shape {w.shape} != ({n},)")
+    total = float(w.sum())
+    if total <= 0:
+        raise ValueError("weights must sum to a positive value")
+    return w / total
+
+
+def power_mean(
+    arrays: list[np.ndarray],
+    p: float,
+    weights: np.ndarray | None = None,
+    eps: float = PROB_EPS,
+) -> np.ndarray:
+    """Weighted power mean. ``p=0`` is the geometric mean; ``p=-1`` is harmonic."""
+    if not arrays:
+        raise ValueError("power_mean requires at least one array")
+    stacked = np.vstack([clip_prob(x, eps) for x in arrays])
+    w = _normalized_weights(stacked.shape[0], weights)
+    if abs(float(p)) < 1e-12:
+        return np.exp(np.tensordot(w, np.log(stacked), axes=(0, 0)))
+    powered = np.power(stacked, float(p))
+    return np.power(np.tensordot(w, powered, axes=(0, 0)), 1.0 / float(p))
+
+
+def blend_geom(oofs: list[np.ndarray], tests: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    weights = _normalized_weights(len(oofs), None)
+    return power_mean(oofs, 0.0, weights), power_mean(tests, 0.0, weights), weights
+
+
+def blend_power(
+    oofs: list[np.ndarray],
+    tests: list[np.ndarray],
+    p: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    weights = _normalized_weights(len(oofs), None)
+    return power_mean(oofs, p, weights), power_mean(tests, p, weights), weights
+
+
+def blend_rank_grid(
+    oofs: list[np.ndarray],
+    tests: list[np.ndarray],
+    y: np.ndarray,
+    step: int = 5,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    return blend_grid(
+        [rank01(x) for x in oofs],
+        [rank01(x) for x in tests],
+        y,
+        step=step,
+    )
+
+
+def blend_geom_grid(
+    oofs: list[np.ndarray],
+    tests: list[np.ndarray],
+    y: np.ndarray,
+    step: int = 5,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    logs = np.vstack([np.log(clip_prob(x)) for x in oofs])
+    logs_test = np.vstack([np.log(clip_prob(x)) for x in tests])
+    best_auc = -1.0
+    weights = _normalized_weights(len(oofs), None)
+    blend_oof = np.exp(logs.mean(axis=0))
+    for w in grid_weights(len(oofs), step=step):
+        pred = np.exp(np.tensordot(w, logs, axes=(0, 0)))
+        auc = float(roc_auc_score(y, pred))
+        if auc > best_auc:
+            best_auc = auc
+            weights = np.array(w, dtype=float)
+            blend_oof = pred
+    blend_test = np.exp(np.tensordot(weights, logs_test, axes=(0, 0)))
+    return blend_oof, blend_test, weights
+
+
+def blend_power_grid(
+    oofs: list[np.ndarray],
+    tests: list[np.ndarray],
+    y: np.ndarray,
+    p: float,
+    step: int = 5,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if abs(float(p)) < 1e-12:
+        return blend_geom_grid(oofs, tests, y, step=step)
+    best_auc = -1.0
+    weights = _normalized_weights(len(oofs), None)
+    blend_oof = power_mean(oofs, p, weights)
+    for w in grid_weights(len(oofs), step=step):
+        pred = power_mean(oofs, p, np.array(w, dtype=float))
+        auc = float(roc_auc_score(y, pred))
+        if auc > best_auc:
+            best_auc = auc
+            weights = np.array(w, dtype=float)
+            blend_oof = pred
+    blend_test = power_mean(tests, p, weights)
+    return blend_oof, blend_test, weights
+
+
 def blend_grid(
     oofs: list[np.ndarray],
     tests: list[np.ndarray],
@@ -155,4 +264,16 @@ def stack_ridge_cv(
     return oof, test_pred, mean_coef, extra
 
 
-BLEND_METHODS = ("mean", "rank", "logit", "grid", "stack_logistic", "stack_ridge")
+BLEND_METHODS = (
+    "mean",
+    "rank",
+    "logit",
+    "grid",
+    "geom",
+    "power",
+    "rank_grid",
+    "geom_grid",
+    "power_grid",
+    "stack_logistic",
+    "stack_ridge",
+)

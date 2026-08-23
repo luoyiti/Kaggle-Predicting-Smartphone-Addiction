@@ -24,10 +24,15 @@ from sklearn.metrics import roc_auc_score
 
 from s6e8.blending import (
     BLEND_METHODS,
+    blend_geom,
+    blend_geom_grid,
     blend_grid,
     blend_logit,
     blend_mean,
+    blend_power,
+    blend_power_grid,
     blend_rank,
+    blend_rank_grid,
     stack_logistic_cv,
     stack_ridge_cv,
 )
@@ -62,6 +67,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--C", type=float, default=1.0, help="Logistic C for stack_logistic")
     parser.add_argument("--alpha", type=float, default=1.0, help="Ridge alpha for stack_ridge")
     parser.add_argument("--grid-step", type=int, default=5)
+    parser.add_argument(
+        "--power",
+        type=float,
+        default=2.0,
+        help="Exponent for power / power_grid (p=-1 harmonic, p=0 geometric, p=2 quadratic)",
+    )
     return parser.parse_args()
 
 
@@ -159,6 +170,24 @@ def main() -> None:
         blend_oof, blend_test, weights = blend_logit(oofs, tests)
     elif method == "grid":
         blend_oof, blend_test, weights = blend_grid(oofs, tests, y, step=args.grid_step)
+    elif method == "geom":
+        blend_oof, blend_test, weights = blend_geom(oofs, tests)
+    elif method == "power":
+        blend_oof, blend_test, weights = blend_power(oofs, tests, args.power)
+        extra["power"] = float(args.power)
+    elif method == "rank_grid":
+        blend_oof, blend_test, weights = blend_rank_grid(
+            oofs, tests, y, step=args.grid_step
+        )
+    elif method == "geom_grid":
+        blend_oof, blend_test, weights = blend_geom_grid(
+            oofs, tests, y, step=args.grid_step
+        )
+    elif method == "power_grid":
+        blend_oof, blend_test, weights = blend_power_grid(
+            oofs, tests, y, args.power, step=args.grid_step
+        )
+        extra["power"] = float(args.power)
     elif method == "stack_logistic":
         blend_oof, blend_test, weights, extra = stack_logistic_cv(
             oofs, tests, y, seed=args.seed, n_splits=args.n_splits, C=args.C
@@ -212,6 +241,11 @@ def main() -> None:
         "diagnostic": False,
         "change": f"{method} blend of {', '.join(args.experiments)}",
     }
+    if "power" in extra:
+        record["power"] = extra["power"]
+        record["change"] = (
+            f"{method} p={extra['power']} blend of {', '.join(args.experiments)}"
+        )
     (records_dir / f"{name}.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
     sub_dir = Path(args.submission_dir)
     if not sub_dir.is_absolute():
