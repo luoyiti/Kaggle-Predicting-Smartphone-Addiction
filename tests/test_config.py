@@ -29,6 +29,7 @@ def test_new_modeling_configs_declare_a_hypothesis():
         "catboost_exactcat_budget_identity_v1",
         "catboost_exactcat_budget_plain_v1",
         "catboost_exactcat_budget_bernoulli_v1",
+        "catboost_exactcat_budget_l2_12_v1",
         "entity_mlp_hash_v1",
         "histgb_nocat_long_v1",
         "lgbm_freq_v1",
@@ -239,6 +240,30 @@ def test_bernoulli_budget_config_isolates_bootstrap_type():
         blob["experiment"].pop("change")
         blob["experiment"].pop("model_version")
         blob["model"]["params"].pop("bootstrap_type", None)
+    assert left == right
+
+
+def test_l2_12_budget_config_isolates_l2_leaf_reg():
+    from copy import deepcopy
+    from pathlib import Path
+
+    import yaml
+
+    base = yaml.safe_load(Path("configs/catboost_exactcat_budget_v1.yaml").read_text(encoding="utf-8"))
+    stronger = yaml.safe_load(
+        Path("configs/catboost_exactcat_budget_l2_12_v1.yaml").read_text(encoding="utf-8")
+    )
+    assert stronger["experiment"]["name"] == "catboost_exactcat_budget_l2_12_v1"
+    assert stronger["model"]["params"]["l2_leaf_reg"] == 12.0
+    assert base["model"]["params"]["l2_leaf_reg"] == 6.0
+    left = deepcopy(base)
+    right = deepcopy(stronger)
+    for blob in (left, right):
+        blob["experiment"].pop("name")
+        blob["experiment"].pop("hypothesis")
+        blob["experiment"].pop("change")
+        blob["experiment"].pop("model_version")
+        blob["model"]["params"].pop("l2_leaf_reg")
     assert left == right
 
 
