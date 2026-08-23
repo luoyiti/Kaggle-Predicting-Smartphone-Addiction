@@ -1,0 +1,19 @@
+{
+  "experiment": "catboost_exactcat_budget_gpu_depth6_v1",
+  "git_commit": "c77a416236a64ea04c1c948a65f587450352c4d5",
+  "config": "/kaggle/working/src/configs/catboost_exactcat_budget_gpu_depth6_v1.yaml",
+  "seed": 42,
+  "data_version": "v1",
+  "feature_version": "exactcat_budget_v1",
+  "model_version": "catboost_gpu_depth6_v1",
+  "accelerator": "gpu",
+  "cv_auc": 0.9679293409270637,
+  "runtime_seconds": 1628.329,
+  "timestamp": "2026-08-23T18:42:19Z",
+  "environment": "kaggle",
+  "hypothesis": "Shallower CatBoost trees (depth 6 vs 8) may reduce ordered-CTR overfit on exact-value cats. One variable vs catboost_exactcat_budget_gpu_v1 is model.params.depth. GPU kernel ready; does not change LightGBM.",
+  "change": "catboost_exactcat_budget_gpu_v1 with depth 6.",
+  "cv_std": 0.0004344061552934444,
+  "diagnostic": false,
+  "backend": "catboost"
+}

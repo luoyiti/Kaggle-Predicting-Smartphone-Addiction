@@ -28,9 +28,15 @@ The three categoricals are dropped. No coverage features.
 | blend_lgbm_cb_gpu | Complementary LGBM + GPU CB | Grid 0.15 nocat + 0.85 GPU CB | 0.967889 | — | — | +0.000157 vs GPU CB solo. Pearson 0.9787. | Prefer over GPU solo |
 | blend_freq_cb_gpu | Freq LGBM + GPU CB | Grid 0.15 freq + 0.85 GPU CB | 0.967867 | — | — | Slightly below nocat+GPU. | Optional |
 | blend_nocat_freq_cb_gpu | Two LGBMs + GPU CB | Grid 0.10 nocat + 0.05 freq + 0.85 GPU CB | 0.967891 | — | — | Tiny lift vs 2-way. | Optional |
-| blend_nocat_freq_histlong_cb_gpu | Tree trio + GPU CB | Grid 0.05/0.05/0.10/0.80 | **0.967904** | — | — | Best this-branch **cats-dropped** 5-fold so far. | Re-blend after CPU drop-cats |
+| blend_nocat_freq_histlong_cb_gpu | Tree trio + GPU CB | Grid 0.05/0.05/0.10/0.80 | 0.967904 | — | — | Best blend of depth-8 GPU CB. | Re-blend after CPU drop-cats |
+| catboost_exactcat_budget_gpu_depth6_v1 | Shallower GPU CatBoost (depth 6 vs 8) | Kernel [s6e8-cb-budget-dropcats-gpu-depth6-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-budget-dropcats-gpu-depth6-v1); n_cat=9; `diagnostic=false`, n_splits=5, n_train=691369 | **0.967929** | 0.000434 | 1628s | **+0.000197 vs GPU v1 0.967732.** Folds 0.96730–0.96860. Best iter 5584–5975 (near 6000 cap). GPU ≠ CPU. | Prefer over GPU depth 8 |
+| blend_lgbm_cb_gpu_depth6 | Complementary LGBM + depth-6 GPU CB | Grid 0.15 nocat + 0.85 depth6 | 0.968030 | — | — | +0.000101 vs depth6 solo. Pearson 0.9795. | Strong pair |
+| blend_freq_cb_gpu_depth6 | Freq LGBM + depth-6 GPU CB | Grid 0.10 freq + 0.90 depth6 | 0.968011 | — | — | Slightly below nocat+depth6. | Optional |
+| blend_nocat_freq_cb_gpu_depth6 | Two LGBMs + depth-6 GPU CB | Grid 0.10 nocat + 0.05 freq + 0.85 depth6 | 0.968033 | — | — | Tiny lift vs 2-way. | Optional |
+| blend_nocat_freq_histlong_cb_gpu_depth6 | Tree trio + depth-6 GPU CB | Grid 0.05/0.00/0.10/0.85 | **0.968043** | — | — | Best this-branch **cats-dropped** 5-fold so far. | Re-blend after CPU drop-cats |
+| blend_cb_gpu_v1_depth6 | Depth 8 + depth 6 GPU CB | Grid 0.30 / 0.70 | 0.967981 | — | — | Pearson 0.998. Below LGBM+depth6. | Stop averaging the two GPU depths |
 
-**CPU drop-cats 5-fold is NOT in LOG.md.** Kernel [s6e8-cb-exactcat-budget-dropcats-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1) (`configs/catboost_exactcat_budget_v1.yaml`) was still **RUNNING** at the 2026-08-23 18:28 UTC harvest. Do not treat the GPU row as that CPU YAML.
+**CPU drop-cats 5-fold is NOT in LOG.md.** Kernel [s6e8-cb-exactcat-budget-dropcats-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1) (`configs/catboost_exactcat_budget_v1.yaml`) was still **RUNNING** at the 2026-08-23 18:48 UTC harvest. Do not treat either GPU row as that CPU YAML.
 
 Did **not** submit to the leaderboard. Did **not** add coverage features. Did **not** drop notifications/app_opens.
 
@@ -91,10 +97,11 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 | catboost_exactcat_budget_plain_v1_diag80000 | Ordered vs Plain boosting | `model.params.boosting_type: Plain` | 0.961641 | 0.000200 | 120s | **Identical to budget Ordered 0.961641** (same OOF, std, folds to reported precision). Not a ranking lever on 80k. | Do not 5-fold for lift; optional runtime tweak |
 | catboost_exactcat_budget_bernoulli_v1_diag80000 | Bernoulli row subsample | `model.params.bootstrap_type: Bernoulli` | 0.961279 | 0.000240 | 119s | **−0.00036 vs budget 0.961641.** Slightly worse solo. | Do not 5-fold |
 | lgbm_nocat_hardband_v1_diag80000 | Specialist on frozen nocat p∈(0.3, 0.7) | `features.hard_band` train_only + eval_on band; frozen `lgbm_nocat` OOF mask; n_band=10966 | 0.470972 | 0.041458 | 1.4s | **Failed.** Solo 0.471. Band AUC 0.519 vs frozen nocat band **0.639**. Gated mix 0.1 is +0.000006 (noise). Grid wants 0% specialist. Not a competition score. | Do not 5-fold |
+| lgbm_nocat_dart_v1_diag80000 | DART dropout vs GBDT | `model.params.boosting_type: dart`; same other params as `lgbm_nocat` | 0.952890 | 0.000570 | 788s | **−0.00143 vs lgbm_nocat 80k 0.954317.** LightGBM has no early stopping in dart mode; ran all 5000 rounds; train AUC ~1.00. Not a competition score. | Do not 5-fold |
 
-**Promote to Kaggle 5-fold (in this order):** harvest CPU `catboost_exactcat_budget_v1` drop-cats (still **RUNNING** as of 2026-08-23 18:28 UTC), then grid-blend with `lgbm_nocat` / `lgbm_freq_v1` / histlong. Seed-average after seed kernels land. GPU depth-6 is already pushed.
+**Promote to Kaggle 5-fold (in this order):** harvest CPU `catboost_exactcat_budget_v1` drop-cats (still **RUNNING** as of 2026-08-23 18:48 UTC), then grid-blend with `lgbm_nocat` / `lgbm_freq_v1` / histlong / GPU depth6. Seed-average after seed kernels land.
 
-**Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO, **target-free original-source refdist** (flat vs budget), **explicit notif\\|app joint exact token** (flat vs budget), **identity-only exact cats** (notif+app only), **hashed-entity MLP**, **Plain vs Ordered CatBoost** (identical 80k), **Bernoulli bootstrap** (−0.00036 vs budget), **hard-band train_only specialist** (solo 0.471; worse than frozen nocat even inside the band).
+**Stop on 80k evidence:** monotone LGBM, extra_trees, original CatBoost cats, decimal lattice, hashed HistGB exact cats, MLP, XGB-nocat without HPO, **target-free original-source refdist** (flat vs budget), **explicit notif\\|app joint exact token** (flat vs budget), **identity-only exact cats** (notif+app only), **hashed-entity MLP**, **Plain vs Ordered CatBoost** (identical 80k), **Bernoulli bootstrap** (−0.00036 vs budget), **hard-band train_only specialist** (solo 0.471; worse than frozen nocat even inside the band), **LightGBM DART** (−0.00143 vs nocat; no early stopping).
 
 ## Answers so far
 
@@ -127,6 +134,7 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 - This-branch `lgbm_freq_v1` 5-fold is 0.963801. Grid 0.50 nocat + 0.50 freq is **0.964208** (Pearson 0.994), slightly above the long-HistGB blend.
 - Three-way grid 0.30 nocat + 0.40 freq + 0.30 histlong is **0.964367**. stack_logistic 0.964314, stack_ridge 0.964261, rank 0.964357, logit 0.964358 — all ≤ grid. Stop restacking that trio.
 - This-branch GPU drop-cats CatBoost 5-fold is **0.967732**. Pearson vs `lgbm_nocat` **0.9787**. Grid 0.15/0.85 = **0.967889**. Four-way with freq+histlong = **0.967904**.
+- This-branch GPU **depth 6** 5-fold is **0.967929** (+0.000197 vs depth 8). Pearson vs `lgbm_nocat` **0.9795**. Grid 0.15/0.85 = **0.968030**. Four-way = **0.968043**. Depth 8+6 Pearson 0.998; averaging them loses to LGBM+depth6.
 - Do not average in failed ablations (`usage_core`, `lgbm_nocat_exact_te_v1`).
 - Grid-blending `lgbm_nocat` OOF with fold-safe notif/app TE is ≤ **+0.00002**. Logistic stack of nocat+TE **hurts** (−0.0007).
 - PR #11 CatBoost exact-cat+budget 5-fold OOF (GPU, **original cats kept**) Pearson vs `lgbm_nocat` is 0.979. Grid 0.15 LGBM + 0.85 CB budget = **0.967843**. Adding PR #11 lattice+refdist reaches **0.968084** without Lookup-Transformer.
@@ -146,7 +154,7 @@ Control `lgbm_nocat_diag80000` reproduced **0.954317** (matches the original ran
 2. `configs/histgb_nocat.yaml` (CPU) — OOF 0.962140.
 3. `python scripts/blend_oof.py --experiments lgbm_nocat histgb_nocat --method grid --name blend_nocat` — OOF **0.963806**.
 
-This is still the **main-tracked official SOTA** for YAMLs that landed on `main`. This branch additionally landed `lgbm_freq_v1` **0.963801**, `blend_nocat_freq_histlong` **0.964367**, GPU drop-cats CatBoost **0.967732**, and `blend_nocat_freq_histlong_cb_gpu` **0.967904**. **CPU drop-cats 5-fold is NOT in LOG.md.** Do **not** `kaggle competitions submit` unless explicitly asked.
+This is still the **main-tracked official SOTA** for YAMLs that landed on `main`. This branch additionally landed `lgbm_freq_v1` **0.963801**, `blend_nocat_freq_histlong` **0.964367**, GPU drop-cats CatBoost **0.967732**, GPU depth-6 **0.967929**, and `blend_nocat_freq_histlong_cb_gpu_depth6` **0.968043**. **CPU drop-cats 5-fold is NOT in LOG.md.** Do **not** `kaggle competitions submit` unless explicitly asked.
 
 ## Full 5-fold from existing Kaggle kernels (PR #11 / earlier; not this-branch YAML)
 
@@ -186,7 +194,7 @@ The 0.968294 row uses Lookup-Transformer **only as an already-trained blender**.
 Local `kaggle kernels push` only. `submit_to_kaggle` was **not** used. Do **not** overwrite PR #11 slugs
 `yitiluo/s6e8-catboost-exactcat-budget-v1` or `yitiluo/s6e8-catboost-exactcat-v1`.
 
-Status snapshot **2026-08-23 18:28 UTC** (`python3 -m kaggle kernels status`):
+Status snapshot **2026-08-23 18:48 UTC** (`python3 -m kaggle kernels status`):
 
 | experiment YAML | kernel | acc | status |
 | --- | --- | --- | --- |
@@ -196,7 +204,7 @@ Status snapshot **2026-08-23 18:28 UTC** (`python3 -m kaggle kernels status`):
 | `catboost_exactcat_budget_seed2026` | [yitiluo/s6e8-cb-budget-seed2026-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-budget-seed2026-v1) | CPU | **RUNNING** |
 | `catboost_exactcat_v1` | [yitiluo/s6e8-cb-exactcat-dropcats-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-dropcats-v1) | CPU | **RUNNING** (unique slug; does not overwrite PR #11) |
 | `catboost_exactcat_budget_gpu_v1` | [yitiluo/s6e8-cb-budget-dropcats-gpu-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-budget-dropcats-gpu-v1) | GPU | **COMPLETE** — 5-fold OOF **0.967732** (`diagnostic=false`, n_cat=9) |
-| `catboost_exactcat_budget_gpu_depth6_v1` | [yitiluo/s6e8-cb-budget-dropcats-gpu-depth6-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-budget-dropcats-gpu-depth6-v1) | GPU | **RUNNING** (pushed after GPU v1 completed; unique slug) |
+| `catboost_exactcat_budget_gpu_depth6_v1` | [yitiluo/s6e8-cb-budget-dropcats-gpu-depth6-v1](https://www.kaggle.com/code/yitiluo/s6e8-cb-budget-dropcats-gpu-depth6-v1) | GPU | **COMPLETE** — 5-fold OOF **0.967929** (`diagnostic=false`, n_cat=9) |
 
 Joint-pair / refdist / identity / Plain / Bernoulli / entity_mlp YAMLs were **not** pushed as 5-folds (80k evidence).
 
@@ -226,6 +234,7 @@ Joint-pair / refdist / identity / Plain / Bernoulli / entity_mlp YAMLs were **no
 - CatBoost `bootstrap_type: Bernoulli` vs default Bayesian (80k **0.961279 vs 0.961641**).
 - Restacking the nocat+freq+histlong trio (logistic / ridge / rank / logit). All ≤ the existing grid **0.964367**.
 - Training a LightGBM specialist **only** on frozen `lgbm_nocat` OOF p∈(0.3, 0.7) (80k **0.470972**; band 0.519 vs frozen 0.639).
+- LightGBM `boosting_type: dart` on nocat (80k **0.952890 vs 0.954317**). No early stopping in dart mode.
 
 ## Code-level paths landed this iteration
 
@@ -234,7 +243,8 @@ Joint-pair / refdist / identity / Plain / Bernoulli / entity_mlp YAMLs were **no
 | `catboost_exactcat_budget_refdist_v1` | target-free original CDF / robust-z / frequency / kNN | 80k **flat**; labels never appended |
 | `catboost_exactcat_budget_seed7` / `_seed2026` | seed only | mean-blend after 5-folds exist |
 | `catboost_exactcat_budget_gpu_v1` | `runtime.accelerator: gpu` | **5-fold 0.967732**; cats dropped; LightGBM unchanged |
-| `catboost_exactcat_budget_gpu_depth6_v1` | depth 6 vs GPU v1 | Kernel **RUNNING** |
+| `catboost_exactcat_budget_gpu_depth6_v1` | depth 6 vs GPU v1 | **5-fold 0.967929**; +0.000197 vs GPU depth 8 |
+| `lgbm_nocat_dart_v1` | `boosting_type: dart` | 80k **0.952890** (−0.00143 vs nocat); no ES; stop |
 | `entity_mlp_hash_v1` | hashed-entity residual MLP | 80k **0.921705**; torch CPU installed this turn; **stop as solo** |
 | `catboost_exactcat_budget_joint_v1` | `exact_categorical.joint_pairs` notif\\|app | 80k **flat** vs budget; YAML kept for the isolated lever |
 | `catboost_exactcat_budget_identity_v1` | exact cats = notif+app only | 80k **0.958548** (−0.003 vs budget); stop |
@@ -249,10 +259,10 @@ Joint-pair / refdist / identity / Plain / Bernoulli / entity_mlp YAMLs were **no
 - **Blocker:** CPU drop-cats kernel https://www.kaggle.com/code/yitiluo/s6e8-cb-exactcat-budget-dropcats-v1 is still **RUNNING**. **CPU drop-cats 5-fold is NOT in LOG.md.** When COMPLETE, download into `oof/catboost_exactcat_budget_v1/` (replace the PR #11 orig-cats dump currently in that folder), then:
   `python scripts/blend_oof.py --experiments lgbm_nocat catboost_exactcat_budget_v1 --method grid --name blend_lgbm_cb_budget`
   plus freq / histlong partners. Do **not** confuse with GPU `oof/catboost_exactcat_budget_gpu_v1/`.
-- GPU drop-cats 5-fold **IS** recorded: `catboost_exactcat_budget_gpu_v1` **0.967732**; best blend **0.967904**. GPU ≠ CPU Ordered CTR.
+- GPU drop-cats 5-fold **IS** recorded: `catboost_exactcat_budget_gpu_v1` **0.967732**; GPU depth-6 **0.967929**; best blend **0.968043**. GPU ≠ CPU Ordered CTR.
 - Seed-averaged CatBoost 5-folds (`seed7`, `seed2026` kernels **RUNNING**) then `blend_oof.py --method mean`.
 - This-branch `catboost_exactcat_v1` drop-cats ablation kernel **RUNNING**.
-- `gpu_depth6_v1` kernel **RUNNING** (pushed 2026-08-23 18:14 UTC after GPU v1 completed).
+- `gpu_depth6_v1` kernel **COMPLETE** and recorded.
 - Optional-torch `entity_mlp_hash_v1` 80k diagnostic **done** (0.921705). Do not 5-fold.
 - Pseudo-labelling (high leak risk) and calibration (cannot move ROC-AUC) stay rejected.
 
