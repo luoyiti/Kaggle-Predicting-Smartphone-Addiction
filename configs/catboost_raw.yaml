@@ -1,0 +1,84 @@
+experiment:
+  name: catboost_raw
+  seed: 42
+  data_version: v1
+  feature_version: raw_v1
+  model_version: catboost_v1
+  primary_variable: keep categoricals (CatBoost native cats)
+  hypothesis: >
+    CatBoost's remaining unique value vs LightGBM is ordered boosting on native
+    categoricals. lgbm_raw lost to lgbm_nocat, but CatBoost may use gender /
+    stress / academic differently than LightGBM's integer codes.
+  change: Same columns as lgbm_raw (cats kept); model.name catboost. Optional pip install catboost.
+  expected_effect: Near CatBoost nocat; cats still likely noise. GPU only if runtime.accelerator=gpu.
+
+runtime:
+  accelerator: cpu
+  enable_internet: true
+
+competition:
+  slug: playground-series-s6e8
+  task: binary_classification
+  target: addicted_label
+  id_col: id
+  metric: roc_auc
+  positive_class: 1
+
+paths:
+  train: data/raw/train.csv
+  test: data/raw/test.csv
+  sample_submission: data/raw/sample_submission.csv
+  oof_dir: oof
+  submission_dir: submissions
+
+cv:
+  type: stratified
+  n_splits: 5
+  shuffle: true
+
+features:
+  numeric:
+    - age
+    - daily_screen_time_hours
+    - social_media_hours
+    - gaming_hours
+    - work_study_hours
+    - sleep_hours
+    - notifications_per_day
+    - app_opens_per_day
+    - weekend_screen_time
+  categorical:
+    - gender
+    - stress_level
+    - academic_work_impact
+  drop: []
+  engineering:
+    add_n_missing: false
+    add_missing_indicators: false
+    add_leisure_hours: false
+    add_screen_sleep_ratio: false
+    add_weekend_weekday_ratio: false
+    add_notif_per_open: false
+    ratio_eps: 1.0e-6
+
+model:
+  name: catboost
+  num_boost_round: 3000
+  early_stopping_rounds: 100
+  log_evaluation: 100
+  params:
+    loss_function: Logloss
+    eval_metric: AUC
+    learning_rate: 0.05
+    depth: 6
+    l2_leaf_reg: 3.0
+    random_strength: 0.5
+    bagging_temperature: 0.2
+    od_type: Iter
+    allow_writing_files: false
+
+output:
+  save_oof: true
+  save_test: true
+  save_submission: true
+  dtype: float64

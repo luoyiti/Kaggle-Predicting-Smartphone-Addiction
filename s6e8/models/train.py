@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import inspect
 import json
 import random
@@ -16,7 +17,8 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 
 from s6e8 import __version__ as package_version
 from s6e8.data import PROJECT_ROOT, load_sample_submission, resolve_path
-from s6e8.features import feature_columns, transform
+from s6e8.features import categorical_feature_names, feature_columns, transform
+from s6e8.metrics import calibration_summary, slice_metrics
 from s6e8.runtime import (
     apply_model_device,
     experiment_summary,
@@ -40,12 +42,34 @@ BACKEND_ALIASES = {
     "logreg": "logreg",
     "logistic": "logreg",
     "logisticregression": "logreg",
+    "extratrees": "extratrees",
+    "extra_trees": "extratrees",
+    "et": "extratrees",
 }
 
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
+
+
+def parse_bag_seeds(config: dict[str, Any]) -> list[int]:
+    """Seeds for optional OOF/test averaging. Primary seed is always included."""
+    primary = int(config["experiment"]["seed"])
+    extra = config["experiment"].get("bag_seeds")
+    if extra is None:
+        return [primary]
+    if isinstance(extra, (int, np.integer)):
+        extra_list = [int(extra)]
+    else:
+        extra_list = [int(s) for s in extra]
+    seeds: list[int] = []
+    for seed in extra_list:
+        if seed not in seeds:
+            seeds.append(seed)
+    if primary not in seeds:
+        seeds.insert(0, primary)
+    return seeds
 
 
 def resolve_backend(config: dict[str, Any]) -> str:
@@ -173,7 +197,7 @@ def _prepare_xy(
     train_feat = transform(train_df, config)
     test_feat = transform(test_df, config)
     cols = feature_columns(train_feat, config)
-    cat_cols = [c for c in config["features"]["categorical"] if c in cols]
+    cat_cols = [c for c in categorical_feature_names(train_feat[cols], config) if c in cols]
     return train_feat[cols], test_feat[cols], y.to_numpy(), cols, cat_cols
 
 
@@ -279,8 +303,56 @@ def train_cv(
         "catboost": _fold_catboost,
         "histgb": _fold_histgb,
         "logreg": _fold_logreg,
+        "extratrees": _fold_extratrees,
     }
-    return _run_cv(train_df, test_df, y, config, trainers[backend])
+    fold_fn = trainers[backend]
+    seeds = parse_bag_seeds(config)
+    if len(seeds) == 1:
+        if seeds[0] != int(config["experiment"]["seed"]):
+            config = copy.deepcopy(config)
+            config["experiment"]["seed"] = seeds[0]
+        return _run_cv(train_df, test_df, y, config, fold_fn)
+
+    per_seed: list[dict[str, Any]] = []
+    oofs: list[np.ndarray] = []
+    tests: list[np.ndarray] = []
+    last: dict[str, Any] | None = None
+    for seed in seeds:
+        cfg = copy.deepcopy(config)
+        cfg["experiment"]["seed"] = seed
+        print(f"[seedbag] seed={seed}", flush=True)
+        art = _run_cv(train_df, test_df, y, cfg, fold_fn)
+        oofs.append(np.asarray(art["oof"], dtype=float))
+        tests.append(np.asarray(art["test_pred"], dtype=float))
+        per_seed.append(
+            {
+                "seed": seed,
+                "oof_auc": float(art["oof_auc"]),
+                "cv_mean": float(art["cv_mean"]),
+                "cv_std": float(art["cv_std"]),
+                "fold_scores": list(art["fold_scores"]),
+                "best_iterations": list(art["best_iterations"]),
+            }
+        )
+        last = art
+    assert last is not None
+    oof = np.mean(np.vstack(oofs), axis=0).astype(last["oof"].dtype, copy=False)
+    test_pred = np.mean(np.vstack(tests), axis=0).astype(last["test_pred"].dtype, copy=False)
+    oof_auc = float(roc_auc_score(last["y"], oof))
+    print(
+        f"[seedbag] seeds={seeds} mean_oof={oof_auc:.6f} "
+        f"members={[round(s['oof_auc'], 6) for s in per_seed]}",
+        flush=True,
+    )
+    last = dict(last)
+    last["oof"] = oof
+    last["test_pred"] = test_pred
+    last["oof_auc"] = oof_auc
+    last["cv_mean"] = float(np.mean([s["oof_auc"] for s in per_seed]))
+    last["cv_std"] = float(np.std([s["oof_auc"] for s in per_seed]))
+    last["fold_scores"] = [float(s["oof_auc"]) for s in per_seed]
+    last["seed_bag"] = {"seeds": seeds, "method": "mean", "per_seed": per_seed}
+    return last
 
 
 def _fold_lightgbm(X_tr, y_tr, X_va, y_va, X_test, ctx):
@@ -476,23 +548,72 @@ def _fold_logreg(X_tr, y_tr, X_va, y_va, X_test, ctx):
     params.setdefault("solver", "lbfgs")
     cat_cols = ctx["cat_cols"]
     num_cols = [c for c in X_tr.columns if c not in cat_cols]
-    pre = ColumnTransformer(
-        [
-            ("num", Pipeline([
-                ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler()),
-            ]), num_cols),
+    transformers = [
+        ("num", Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+        ]), num_cols),
+    ]
+    if cat_cols:
+        transformers.append(
             ("cat", Pipeline([
                 ("imputer", SimpleImputer(strategy="most_frequent")),
                 ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
             ]), cat_cols),
-        ]
-    )
+        )
+    pre = ColumnTransformer(transformers)
     clf = Pipeline([("pre", pre), ("model", LogisticRegression(random_state=ctx["seed"], **params))])
     clf.fit(X_tr, y_tr)
     va_pred = clf.predict_proba(X_va)[:, 1]
     te_pred = clf.predict_proba(X_test)[:, 1]
     return va_pred, te_pred, 0
+
+
+def _codes_with_nan(series: pd.Series) -> pd.Series:
+    if str(series.dtype) == "category":
+        codes = series.cat.codes.astype("float64")
+        return codes.mask(codes < 0, np.nan)
+    cat = pd.Categorical(series)
+    codes = pd.Series(cat.codes, index=series.index, dtype="float64")
+    return codes.mask(codes < 0, np.nan)
+
+
+def _fold_extratrees(X_tr, y_tr, X_va, y_va, X_test, ctx):
+    """sklearn ExtraTrees: no native NaN, so median-impute after encoding cats."""
+    from sklearn.ensemble import ExtraTreesClassifier
+    from sklearn.impute import SimpleImputer
+
+    model_cfg = ctx["config"]["model"]
+    params = dict(model_cfg.get("params") or {})
+    params.setdefault("random_state", ctx["seed"])
+    params.setdefault("n_estimators", int(model_cfg.get("num_boost_round", 200)))
+    params.setdefault("n_jobs", -1)
+    params = _filter_init_kwargs(ExtraTreesClassifier, params)
+    cat_cols = ctx["cat_cols"]
+    X_tr_n = X_tr.copy()
+    X_va_n = X_va.copy()
+    X_te_n = X_test.copy()
+    for col in cat_cols:
+        if col in X_tr_n.columns:
+            X_tr_n[col] = _codes_with_nan(X_tr_n[col])
+            X_va_n[col] = _codes_with_nan(X_va_n[col])
+            X_te_n[col] = _codes_with_nan(X_te_n[col])
+    for frame in (X_tr_n, X_va_n, X_te_n):
+        for col in frame.columns:
+            if str(frame[col].dtype) == "category":
+                frame[col] = _codes_with_nan(frame[col])
+            elif not pd.api.types.is_numeric_dtype(frame[col]):
+                frame[col] = _codes_with_nan(frame[col])
+    imputer = SimpleImputer(strategy="median")
+    X_tr_i = imputer.fit_transform(X_tr_n)
+    X_va_i = imputer.transform(X_va_n)
+    X_te_i = imputer.transform(X_te_n)
+    clf = ExtraTreesClassifier(**params)
+    clf.fit(X_tr_i, y_tr)
+    best_iter = int(getattr(clf, "n_estimators", 0) or 0)
+    va_pred = clf.predict_proba(X_va_i)[:, 1]
+    te_pred = clf.predict_proba(X_te_i)[:, 1]
+    return va_pred, te_pred, best_iter
 
 
 def _mean_feature_importance(
@@ -509,6 +630,7 @@ def _mean_feature_importance(
 def save_artifacts(
     artifacts: dict[str, Any],
     config: dict[str, Any],
+    slice_df: pd.DataFrame | None = None,
 ) -> dict[str, str]:
     output_cfg = config.get("output", {})
     oof_dir = _oof_dir(config)
@@ -579,6 +701,13 @@ def save_artifacts(
         "model_name": config["model"]["name"],
         "config_path": config.get("_config_path"),
     }
+    if artifacts.get("seed_bag"):
+        metrics["seed_bag"] = artifacts["seed_bag"]
+    if slice_df is not None:
+        metrics["slices"] = slice_metrics(
+            artifacts["y"], artifacts["oof"], slice_df, min_n=50
+        )
+        metrics["calibration"] = calibration_summary(artifacts["y"], artifacts["oof"])
     te_cfg = artifacts.get("te_config")
     if te_cfg:
         metrics["target_encoding"] = te_cfg

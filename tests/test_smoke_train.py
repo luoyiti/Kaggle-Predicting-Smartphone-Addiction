@@ -5,10 +5,94 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 import yaml
 
 from s6e8.data import load_config, split_xy
 from s6e8.models.train import assert_oof_available, save_artifacts, train_cv
+
+
+def test_optional_xgboost_backend_smokes(tmp_path, baseline_config_path):
+    pytest.importorskip("xgboost")
+    train_df, test_df = _synthetic_frames()
+    raw = yaml.safe_load(baseline_config_path.read_text(encoding="utf-8"))
+    raw["paths"]["train"] = str(tmp_path / "train.csv")
+    raw["paths"]["test"] = str(tmp_path / "test.csv")
+    raw["paths"]["sample_submission"] = str(tmp_path / "missing.csv")
+    raw["paths"]["oof_dir"] = str(tmp_path / "oof")
+    raw["paths"]["submission_dir"] = str(tmp_path / "submissions")
+    raw["paths"]["experiments_dir"] = str(tmp_path / "experiments")
+    raw["cv"]["n_splits"] = 2
+    raw["experiment"]["name"] = "synthetic_xgb"
+    raw["model"]["name"] = "xgboost"
+    raw["model"]["num_boost_round"] = 20
+    raw["model"]["early_stopping_rounds"] = 5
+    raw["model"]["log_evaluation"] = 0
+    raw["model"]["params"] = {
+        "objective": "binary:logistic",
+        "eval_metric": "auc",
+        "learning_rate": 0.1,
+        "max_depth": 3,
+        "tree_method": "hist",
+        "verbosity": 0,
+    }
+    raw["features"]["engineering"] = {
+        "add_n_missing": False,
+        "add_leisure_hours": False,
+        "add_screen_sleep_ratio": False,
+        "add_weekend_weekday_ratio": False,
+        "add_notif_per_open": False,
+    }
+    train_df.to_csv(raw["paths"]["train"], index=False)
+    test_df.to_csv(raw["paths"]["test"], index=False)
+    cfg_path = tmp_path / "xgb.yaml"
+    cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    config = load_config(cfg_path)
+    X_train, y = split_xy(train_df, config)
+    artifacts = train_cv(X_train, test_df, y, config)
+    assert 0.0 <= artifacts["oof_auc"] <= 1.0
+
+
+def test_optional_catboost_backend_smokes(tmp_path, baseline_config_path):
+    pytest.importorskip("catboost")
+    train_df, test_df = _synthetic_frames()
+    raw = yaml.safe_load(baseline_config_path.read_text(encoding="utf-8"))
+    raw["paths"]["train"] = str(tmp_path / "train.csv")
+    raw["paths"]["test"] = str(tmp_path / "test.csv")
+    raw["paths"]["sample_submission"] = str(tmp_path / "missing.csv")
+    raw["paths"]["oof_dir"] = str(tmp_path / "oof")
+    raw["paths"]["submission_dir"] = str(tmp_path / "submissions")
+    raw["paths"]["experiments_dir"] = str(tmp_path / "experiments")
+    raw["cv"]["n_splits"] = 2
+    raw["experiment"]["name"] = "synthetic_catboost"
+    raw["model"]["name"] = "catboost"
+    raw["model"]["num_boost_round"] = 30
+    raw["model"]["early_stopping_rounds"] = 10
+    raw["model"]["log_evaluation"] = 0
+    raw["model"]["params"] = {
+        "loss_function": "Logloss",
+        "eval_metric": "AUC",
+        "learning_rate": 0.1,
+        "depth": 4,
+        "verbose": 0,
+        "allow_writing_files": False,
+    }
+    raw["features"]["drop"] = []
+    raw["features"]["engineering"] = {
+        "add_n_missing": False,
+        "add_leisure_hours": False,
+        "add_screen_sleep_ratio": False,
+        "add_weekend_weekday_ratio": False,
+        "add_notif_per_open": False,
+    }
+    train_df.to_csv(raw["paths"]["train"], index=False)
+    test_df.to_csv(raw["paths"]["test"], index=False)
+    cfg_path = tmp_path / "cb.yaml"
+    cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    config = load_config(cfg_path)
+    X_train, y = split_xy(train_df, config)
+    artifacts = train_cv(X_train, test_df, y, config)
+    assert 0.0 <= artifacts["oof_auc"] <= 1.0
 
 
 def _synthetic_frames(n_train: int = 80, n_test: int = 20) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -121,6 +205,43 @@ def test_smoke_histgb_and_logreg_backends(tmp_path, baseline_config_path):
         assert len(artifacts["oof"]) == len(train_df)
 
 
+def test_smoke_extratrees_backend(tmp_path, baseline_config_path):
+    train_df, test_df = _synthetic_frames()
+    raw = yaml.safe_load(baseline_config_path.read_text(encoding="utf-8"))
+    raw["paths"]["train"] = str(tmp_path / "train.csv")
+    raw["paths"]["test"] = str(tmp_path / "test.csv")
+    raw["paths"]["sample_submission"] = str(tmp_path / "missing.csv")
+    raw["paths"]["oof_dir"] = str(tmp_path / "oof")
+    raw["paths"]["submission_dir"] = str(tmp_path / "submissions")
+    raw["paths"]["experiments_dir"] = str(tmp_path / "experiments")
+    raw["cv"]["n_splits"] = 2
+    raw["experiment"]["name"] = "synthetic_extratrees"
+    raw["model"]["name"] = "extratrees"
+    raw["model"]["params"] = {"n_estimators": 20, "max_depth": 4, "n_jobs": 1}
+    raw["model"]["num_boost_round"] = 20
+    raw["features"]["engineering"] = {
+        "add_n_missing": False,
+        "add_leisure_hours": False,
+        "add_screen_sleep_ratio": False,
+        "add_weekend_weekday_ratio": False,
+        "add_notif_per_open": False,
+    }
+    train_df.to_csv(raw["paths"]["train"], index=False)
+    test_df.to_csv(raw["paths"]["test"], index=False)
+    cfg_path = tmp_path / "et.yaml"
+    cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    config = load_config(cfg_path)
+    X_train, y = split_xy(train_df, config)
+    artifacts = train_cv(X_train, test_df, y, config)
+    written = save_artifacts(artifacts, config, slice_df=X_train)
+    assert 0.0 <= artifacts["oof_auc"] <= 1.0
+    import json
+
+    metrics = json.loads(Path(written["metrics"]).read_text(encoding="utf-8"))
+    assert "slices" in metrics
+    assert "calibration" in metrics
+
+
 def test_histgb_fit_accepts_missing_x_val():
     """Kaggle images may ship sklearn < 1.7, where HistGB.fit has no X_val."""
     from s6e8.models.train import _filter_init_kwargs, fit_histgb
@@ -156,6 +277,60 @@ def test_histgb_fit_accepts_missing_x_val():
 
     filtered = _filter_init_kwargs(OldHistGB, {"learning_rate": 0.06, "categorical_features": "from_dtype"})
     assert filtered == {"learning_rate": 0.06}
+
+
+def test_parse_bag_seeds_includes_primary():
+    from s6e8.models.train import parse_bag_seeds
+
+    assert parse_bag_seeds({"experiment": {"seed": 42}}) == [42]
+    assert parse_bag_seeds({"experiment": {"seed": 42, "bag_seeds": [43, 2026]}}) == [42, 43, 2026]
+    assert parse_bag_seeds({"experiment": {"seed": 42, "bag_seeds": [42, 43]}}) == [42, 43]
+
+
+def test_smoke_seedbag_averages_oof(tmp_path, baseline_config_path):
+    train_df, test_df = _synthetic_frames()
+    raw = yaml.safe_load(baseline_config_path.read_text(encoding="utf-8"))
+    raw["paths"]["train"] = str(tmp_path / "train.csv")
+    raw["paths"]["test"] = str(tmp_path / "test.csv")
+    raw["paths"]["sample_submission"] = str(tmp_path / "missing.csv")
+    raw["paths"]["oof_dir"] = str(tmp_path / "oof")
+    raw["paths"]["submission_dir"] = str(tmp_path / "submissions")
+    raw["paths"]["experiments_dir"] = str(tmp_path / "experiments")
+    raw["cv"]["n_splits"] = 2
+    raw["experiment"]["name"] = "synthetic_seedbag"
+    raw["experiment"]["seed"] = 0
+    raw["experiment"]["bag_seeds"] = [0, 1]
+    raw["model"]["name"] = "histgb"
+    raw["model"]["params"] = {
+        "max_iter": 12,
+        "learning_rate": 0.1,
+        "early_stopping": True,
+        "n_iter_no_change": 4,
+    }
+    raw["model"]["num_boost_round"] = 12
+    raw["model"]["early_stopping_rounds"] = 4
+    raw["features"]["engineering"] = {
+        "add_n_missing": False,
+        "add_leisure_hours": False,
+        "add_screen_sleep_ratio": False,
+        "add_weekend_weekday_ratio": False,
+        "add_notif_per_open": False,
+    }
+    train_df.to_csv(raw["paths"]["train"], index=False)
+    test_df.to_csv(raw["paths"]["test"], index=False)
+    cfg_path = tmp_path / "seedbag.yaml"
+    cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    config = load_config(cfg_path)
+    X_train, y = split_xy(train_df, config)
+    artifacts = train_cv(X_train, test_df, y, config)
+    written = save_artifacts(artifacts, config)
+    assert artifacts.get("seed_bag", {}).get("seeds") == [0, 1]
+    assert len(artifacts["seed_bag"]["per_seed"]) == 2
+    assert 0.0 <= artifacts["oof_auc"] <= 1.0
+    import json
+
+    metrics = json.loads(Path(written["metrics"]).read_text(encoding="utf-8"))
+    assert "seed_bag" in metrics
 
 
 def test_diagnostic_override_renames_experiment(baseline_config_path):

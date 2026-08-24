@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 import yaml
 
 from s6e8.data import load_config
@@ -108,3 +109,50 @@ def test_drop_removes_columns(tmp_path):
     assert "gender" not in cols
     assert "n_missing" not in cols
     assert "daily_screen_time_hours" in cols
+
+
+def test_missing_indicators_and_leisure_work(tmp_path):
+    config = _config(
+        tmp_path,
+        {
+            "add_missing_indicators": True,
+            "add_leisure_work_ratio": True,
+        },
+    )
+    out = add_engineered_features(_frame(), config)
+    assert "daily_screen_time_hours_is_missing" in out.columns
+    assert out.loc[1, "daily_screen_time_hours_is_missing"] == 1
+    assert "leisure_work_ratio" in out.columns
+    assert out.loc[0, "leisure_work_ratio"] == pytest.approx(3.0 / (2.0 + 1e-6), rel=1e-6)
+
+
+def test_interactions_and_ordinal_and_bins(tmp_path):
+    config = _config(
+        tmp_path,
+        {
+            "add_interactions": True,
+            "interaction_pairs": [["social_media_hours", "gaming_hours"]],
+            "add_ordinal_cats": True,
+            "add_quantile_bins": True,
+            "quantile_bins": 2,
+            "quantile_bin_columns": ["sleep_hours"],
+        },
+    )
+    out = transform(_frame(), config)
+    assert "social_media_hours_x_gaming_hours" in out.columns
+    assert out.loc[0, "social_media_hours_x_gaming_hours"] == 2.0
+    assert out.loc[0, "stress_level_ord"] == 0
+    assert str(out["sleep_hours_qbin"].dtype) == "category"
+    from s6e8.features import categorical_feature_names
+
+    cats = categorical_feature_names(out, config)
+    assert "sleep_hours_qbin" in cats
+
+
+def test_encode_missing_as_category(tmp_path):
+    config = _config(
+        tmp_path,
+        {"encode_missing_as_category": True},
+    )
+    out = add_engineered_features(_frame(), config)
+    assert out.loc[2, "gender"] == "__NA__"

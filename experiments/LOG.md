@@ -32,6 +32,58 @@ unseen-value rates are fake. These rows use the **full train**.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | lgbm_nocat_exact_te_v1_diag | Exact numeric values carry playground identity that raw splits miss | `lgbm_nocat` + fold-safe LOO TE on notif/app/sleep/age/gaming/work; 3-fold full data | 0.923636 | 0.000601 | 17s | **−0.040 vs lgbm_nocat.** Unseen=0 (not leakage). Best iter 20–31. `age_exact_te` stole 17% gain; predictions compressed. Identity is real univariately (notif TE 0.76 vs raw 0.49) but already inside deep LGBM. **Stop TE-in-GBM. No 5-fold.** | Do not inject lookup TE into LightGBM. Residual of nocat is not in generator arithmetic either |
 
+## Diagnostic ranking, this PR (real 80k rows × 3-fold, seed 42 — not a 5-fold score)
+
+Run on official Kaggle `train.csv` (691,369 rows subsampled to 80k). Control `lgbm_nocat_diag80000` **reproduced 0.954317**, matching the previous log exactly.
+
+| experiment | hypothesis | change | CV AUC | vs nocat | conclusion |
+| --- | --- | --- | --- | --- | --- |
+| lgbm_nocat_diag80000 | Control | 9 raw numerics | **0.954317** | 0 | Reproduced |
+| lgbm_nocat_missflags_diag80000 | Missingness is signal | per-column NA flags | 0.954461 | +0.000144 | Within fold std (~0.0003). Not a 5-fold candidate |
+| lgbm_nocat_leisure_work_diag80000 | Leisure vs work ratio | `add_leisure_work_ratio` | 0.954284 | −0.000033 | Dead-end |
+| lgbm_nocat_interactions_diag80000 | Explicit products | pairwise usage products | 0.952966 | **−0.00135** | Harmful. Stop |
+| lgbm_nocat_bins_diag80000 | Quantile stumps | 5-qbins of daily/sleep/weekend | 0.954196 | −0.00012 | Dead-end |
+| lgbm_ordinal_cats_diag80000 | Ordered cat maps | ordinal + drop strings | 0.954108 | −0.00021 | Dead-end vs nocat |
+| lgbm_cat_missing_level_diag80000 | `__NA__` cat level | keep cats, fill missing | 0.954091 | −0.00023 | Dead-end vs nocat |
+| logreg_nocat_diag80000 | Linear + miss flags | logreg nocat | 0.913096 | −0.041 | Still too weak (raw logreg was 0.911) |
+| extratrees_nocat_diag80000 | Diversity vs GBM | ExtraTrees, median impute | 0.925209 | −0.029 | Grid blend weight vs LGBM = **1.0 / 0.0** |
+| lgbm_nocat_diag80000_cal_isotonic | Isotonic on OOF | inner-CV isotonic | 0.954025 | −0.00029 | ECE 0.0042→0.0035; AUC drop. Skip |
+| lgbm_nocat_diag80000_cal_platt | Platt on OOF | inner-CV logistic | 0.954272 | −0.000045 | ECE **worsens** 0.0042→0.0348. Stop |
+| stack_nocat_logreg_diag80000 | Logistic stack | LGBM+logreg OOF | 0.953912 | −0.00041 | Hurts |
+| blend_nocat_logreg_diag80000 | AUC-weighted | LGBM+logreg | 0.945653 | −0.0087 | Hurts (logreg too weak) |
+
+Real-data contract audit (full 691,369 / 296,302): schema OK, id overlap 0, id-vs-label AUC 0.5007, `daily < social+gaming+work` rows **0**, numeric PSI ~1e-5, positive rate **0.7094**. Missing-rate train/test gaps of 2–3% on a few columns (warn, not error).
+
+Error analysis on `lgbm_nocat_diag80000`: hard band n=12,219, AUC 0.637, max residual-column AUC 0.516 → **stop_or_ensemble** (same story as full-data ~93k / 0.641).
+
+CatBoost and XGBoost nocat YAML are implemented but **not scored here** (`xgboost`/`catboost` not installed). Kernel-only.
+
+## Diagnostic ranking, remaining GBDT / seed surfaces (real 80k × 3-fold, seed 42 subsample — not a 5-fold score)
+
+Same protocol as the previous 80k table. Control `lgbm_nocat_diag80000` still **0.954317**. Packages `xgboost==3.4.1` and `catboost==1.2.10` were installed for this ranking only (not added to `requirements.txt`).
+
+| experiment | hypothesis | change | CV AUC | vs nocat | conclusion |
+| --- | --- | --- | --- | --- | --- |
+| lgbm_nocat_diag80000 | Control | 9 raw numerics | **0.954317** | 0 | Reproduced |
+| lgbm_nocat_seedbag_diag80000 | Mean of 3 CV seeds | bag_seeds 42/43/2026 | **0.956035** | **+0.00172** | Members 0.954317 / 0.954575 / 0.954699. Best remaining Kernel job |
+| lgbm_nocat_lowlr_diag80000 | Slower schedule | lr=0.02 | 0.954917 | +0.00060 | ~2× fold std; corr 0.996 with default LGBM |
+| catboost_nocat_diag80000 | Ordered boosting | CatBoost, nocat | 0.954249 | −0.00007 | Tied with LGBM; useful blend partner (corr 0.986) |
+| catboost_raw_diag80000 | CatBoost native cats | cats kept | 0.954273 | −0.00004 | Cats still noise |
+| xgb_nocat_diag80000 | Third GBDT on nocat | XGBoost hist | 0.952417 | −0.00190 | Same gap as xgb_raw |
+| histgb_nocat_moreiter_diag80000 | Uncap HistGB | max_iter=2000 | 0.953986 | −0.00033 | best_iter 531–542 on sklearn 1.9; flat vs histgb_nocat 80k |
+| lgbm_nocat_extra_trees_diag80000 | Random splits | extra_trees=true | 0.939472 | **−0.015** | Harmful. Stop |
+| blend_lgbm_cb_diag80000 | CB diversity | grid 0.50/0.50 | **0.955326** | +0.00101 | Better 80k blend than LGBM+HistGB |
+| blend_seedbag_cb_diag80000 | Seedbag + CB | grid 0.70/0.30 | **0.956368** | +0.00205 | Best diagnostic blend |
+| blend_three_gbdt_diag80000 | LGBM+CB+HistGB | grid 0.3/0.4/0.3 | 0.955574 | +0.00126 | Below seedbag alone |
+| blend_lgbm_histgb_moreiter_diag80000 | Uncapped HistGB partner | grid 0.55/0.45 | 0.954896 | +0.00058 | Same as old histgb blend |
+| blend_rank_lgbm_histgb_diag80000 | Rank vs grid | rank 0.5/0.5 | 0.954880 | +0.00056 | Rank ≈ grid |
+| blend_lgbm_xgb_diag80000 | XGB partner | grid 0.75/0.25 | 0.954512 | +0.00020 | Tiny |
+| blend_lgbm_lowlr_diag80000 | Two LGBM schedules | grid 0.25/0.75 | 0.954991 | +0.00067 | Almost just lowlr |
+
+Adversarial train/test AUC (40k subsample, numeric + missing flags): **0.5585** (warn ≥ 0.55). Matches the known 2–3% missing-rate gaps; not a reason to add shift features.
+
+`scripts/promote.py --candidate lgbm_nocat_seedbag_diag80000 --baseline lgbm_nocat_diag80000` failed closed (`diagnostic runs cannot be promoted`) even though delta was +0.00172.
+
 ## Diagnostic ranking (80k rows, 3-fold, seed 42 — not a leaderboard number)
 
 | experiment | hypothesis | change | CV AUC | fold std | runtime | conclusion | next step |
@@ -105,3 +157,36 @@ Submission CSVs are local/Kaggle artifacts (`submissions/lgbm_nocat.csv`, `submi
 - Mean-blending nocat with OOF exact-value TE (≤ +0.00002).
 - `other_screen` / `component_sum` / `weekend − daily` / value-frequency / fractional parts as extra GBM columns (residual vs nocat ≈ 0).
 - Another LGBM+HistGB probability blend pass.
+- LightGBM `extra_trees` (80k 0.939).
+- CatBoost with categoricals kept (`catboost_raw` tied with nocat).
+
+## Full 5-fold jobs (queued — not scored)
+
+1. `configs/lgbm_nocat_seedbag.yaml` — 80k +0.00172; ~3× `lgbm_nocat` wall-clock.
+2. Optional `configs/catboost_nocat.yaml` then grid blend with seedbag.
+
+## Modeling surface added for Kernel follow-up
+
+Configs/scripts exist so remaining families can run without new trainers. **Competition scores** still require non-diagnostic `oof/<name>/metrics.json`.
+
+| name | primary variable | 80k×3 (this VM) | Kernel? |
+| --- | --- | --- | --- |
+| `lgbm_nocat_seedbag` | `experiment.bag_seeds` | **0.956035** | **Yes — next 5-fold** |
+| `catboost_nocat` | model.name catboost | 0.954249 | Yes, if catboost on image |
+| `lgbm_nocat_lowlr` | learning_rate 0.02 | 0.954917 | Optional; highly correlated with default |
+| `xgb_nocat` | model.name xgboost | 0.952417 | Low priority |
+| `histgb_nocat_moreiter` | max_iter 2000 | 0.953986 | Only if Kernel sklearn still caps at 500 |
+| `lgbm_nocat_extra_trees` | extra_trees | 0.939472 | **No** |
+| `catboost_raw` | keep cats | 0.954273 | **No** (tied with nocat) |
+| `lgbm_nocat_seed43` / `seed2026` | extra seeds | (inside seedbag) | Alternative to one 3× job |
+| rank / auc_weighted / LGBM+CB grid | ensemble | see table | After parent OOFs exist |
+
+```bash
+python scripts/train.py --config configs/lgbm_nocat_seedbag.yaml
+python scripts/train.py --config configs/catboost_nocat.yaml
+python scripts/blend_oof.py --experiments lgbm_nocat_seedbag catboost_nocat --method grid --name blend_seedbag_catboost --write-experiment-record
+python scripts/promote.py --candidate lgbm_nocat_seedbag --baseline lgbm_nocat
+```
+
+Human report: `reports/mle_modeling_report.html`. Contracts: `docs/mle/`.
+

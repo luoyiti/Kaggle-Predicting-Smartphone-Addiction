@@ -13,6 +13,29 @@ def test_baseline_yaml_loads(baseline_config_path):
     assert config["model"]["name"] == "lightgbm"
 
 
+def test_new_train_configs_document_hypothesis():
+    from pathlib import Path
+
+    required = (
+        "lgbm_nocat_missflags.yaml",
+        "lgbm_nocat_interactions.yaml",
+        "catboost_nocat.yaml",
+        "catboost_raw.yaml",
+        "extratrees_nocat.yaml",
+        "xgb_nocat.yaml",
+        "histgb_nocat_moreiter.yaml",
+        "lgbm_nocat_lowlr.yaml",
+        "lgbm_nocat_extra_trees.yaml",
+        "lgbm_nocat_seed43.yaml",
+        "lgbm_nocat_seedbag.yaml",
+    )
+    for name in required:
+        config = load_config(Path("configs") / name)
+        assert config["experiment"].get("hypothesis")
+        assert config["experiment"].get("change")
+        assert config["experiment"].get("primary_variable")
+
+
 def test_experiment_names_are_unique():
     from pathlib import Path
 

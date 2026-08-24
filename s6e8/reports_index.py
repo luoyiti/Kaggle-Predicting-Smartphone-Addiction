@@ -38,6 +38,9 @@ KNOWN_DESCRIPTIONS = {
     "eda_report.html": (
         "全量 train/test 的探索性数据分析：单变量 AUC、缺失、偏移与泄漏检查。"
     ),
+    "mle_modeling_report.html": (
+        "MLE workflow modeling report: contracts, experiment ledger, path coverage, how to run."
+    ),
 }
 
 
